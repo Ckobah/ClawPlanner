@@ -70,7 +70,7 @@ def _parse_ids_csv(value: str | None) -> set[int]:
     return out
 
 
-ALLOWED_TG_IDS: set[int] = _parse_ids_csv(os.getenv("ALLOWED_TG_IDS", "388944133"))
+ALLOWED_TG_IDS: set[int] = _parse_ids_csv(os.getenv("ALLOWED_TG_IDS", "123456789"))
 AI_SESSION_PREFIX = os.getenv("AI_SESSION_PREFIX", "tg_planner_user")
 AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "90"))
 OPENCLAW_BIN = os.getenv("OPENCLAW_BIN") or shutil.which("openclaw") or "/home/clawd/.npm-global/bin/openclaw"

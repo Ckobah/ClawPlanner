@@ -19,7 +19,7 @@ if [[ -f .env ]]; then
 fi
 
 read -r -p "TG_BOT_TOKEN: " TG_BOT_TOKEN
-read -r -p "ALLOWED_TG_IDS (e.g. 388944133): " ALLOWED_TG_IDS
+read -r -p "ALLOWED_TG_IDS (e.g. 123456789): " ALLOWED_TG_IDS
 read -r -p "DB_HOST [127.0.0.1]: " DB_HOST
 DB_HOST=${DB_HOST:-127.0.0.1}
 read -r -p "DB_PORT [5432]: " DB_PORT
