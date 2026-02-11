@@ -33,7 +33,7 @@ from database.db_controller import db_controller
 from database.session import engine
 from entities import Event
 from handlers.cal import handle_calendar_callback, show_calendar
-from handlers.contacts import handle_contact, handle_team_callback, handle_team_command
+from handlers.contacts import handle_contact
 from handlers.events import (
     generate_time_selector,
     get_event_constructor,
@@ -42,8 +42,7 @@ from handlers.events import (
     handle_delete_event_callback,
     handle_edit_event_callback,
     handle_emoji_callback,
-    handle_event_participants_callback,
-    handle_participants_callback,
+    # participants handlers disabled for single-user calendar mode,
     handle_reschedule_event_callback,
     handle_time_callback,
     show_upcoming_events,
@@ -713,14 +712,14 @@ async def set_commands(app):
     commands_ru = [
         BotCommand("start", "Запустить бота"),
         BotCommand("my_id", "Показать мой Telegram ID"),
-        BotCommand("team", "Управление участниками"),
+        # BotCommand("team", "Управление участниками"),
         BotCommand("help", "Помощь"),
         BotCommand("language", "Сменить язык"),
     ]
     commands_en = [
         BotCommand("start", "Start bot"),
         BotCommand("my_id", "Show my Telegram ID"),
-        BotCommand("team", "Manage participants"),
+        # BotCommand("team", "Manage participants"),
         BotCommand("help", "Help"),
         BotCommand("language", "Change language"),
     ]
@@ -751,7 +750,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", handle_help))
     application.add_handler(CommandHandler("language", handle_language))
-    application.add_handler(CommandHandler("team", handle_team_command))
+    # application.add_handler(CommandHandler("team", handle_team_command))
     application.add_handler(CommandHandler("my_id", handle_my_id))
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(MessageHandler(filters.Regex(r"^⏭ (Пропустить|Skip)$"), handle_skip))
@@ -765,9 +764,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_create_event_callback, pattern="^create_event_"))
     application.add_handler(CallbackQueryHandler(handle_edit_event_callback, pattern="^edit_event_"))
     application.add_handler(CallbackQueryHandler(handle_delete_event_callback, pattern="^delete_event_"))
-    application.add_handler(CallbackQueryHandler(handle_participants_callback, pattern="^participants_"))
-    application.add_handler(CallbackQueryHandler(handle_team_callback, pattern="^team_"))
-    application.add_handler(CallbackQueryHandler(handle_event_participants_callback, pattern="^create_participant_event_"))
+    # participants/team callbacks disabled in single-user calendar mode
     application.add_handler(CallbackQueryHandler(handle_reschedule_event_callback, pattern="^reschedule_event_"))
     application.add_handler(CallbackQueryHandler(handle_emoji_callback, pattern="^emoji_"))
     application.add_handler(CallbackQueryHandler(handle_link_callback, pattern="^link_tg_"))

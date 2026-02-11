@@ -19,14 +19,14 @@ def _commands_for_locale(locale: str) -> list[BotCommand]:
         return [
             BotCommand("start", "Start bot"),
             BotCommand("my_id", "Show my Telegram ID"),
-            BotCommand("team", "Manage participants"),
+            # BotCommand("team", "Manage participants"),
             BotCommand("help", "Help"),
             BotCommand("language", "Change language"),
         ]
     return [
         BotCommand("start", "Запустить бота"),
         BotCommand("my_id", "Показать мой Telegram ID"),
-        BotCommand("team", "Управление участниками"),
+        # BotCommand("team", "Управление участниками"),
         BotCommand("help", "Помощь"),
         BotCommand("language", "Сменить язык"),
     ]
@@ -98,18 +98,13 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "👋 Привет! Я помогу планировать дела и напоминать о событиях.\n\n"
         "📌 Основные команды:\n"
         "• /start — запуск бота\n"
-        "• /team — управление участниками (удаление лишних)\n"
         "• /help — это сообщение\n\n"
         "🗓️ Календарь и события:\n"
         "1) Открой «Календарь» и выбери дату.\n"
         "2) Нажми «✍️Создать событие».\n"
         "3) Укажи время начала/окончания и описание.\n"
         "4) При необходимости выбери повторения.\n"
-        "5) Добавь участников и нажми «Сохранить событие».\n\n"
-        "👥 Участники:\n"
-        "• Чтобы добавить участника, отправь его контакт в чат.\n"
-        "• Если человек еще не запускал бота — он появится с пометкой «не в боте».\n"
-        "• Управление списком участников — команда /team.\n\n"
+        "5) Нажми «Сохранить событие».\n\n"
         "⏰ Ближайшие события:\n"
         "Нажми «Ближайшие события», чтобы увидеть список на несколько дней вперед.\n\n"
         "🗑️ Удаление событий:\n"

@@ -326,7 +326,6 @@ def get_event_constructor(
     stop_time = tr("Окончание", locale)
     description = tr("Описание *", locale)
     recurrent = tr("Повтор", locale)
-    participants = tr("Участники", locale)
     show_create_btn = False
 
     if event:
@@ -338,10 +337,6 @@ def get_event_constructor(
         description = format_description(event.description, locale)
         description = description[:20] + "..." if len(str(description)) > 20 else description
         recurrent = f"{recurrent}: {event.recurrent.get_name(locale)}"
-        len_participants = len(event.participants) if event.participants else None
-        if len_participants:
-            participants += f" ({len_participants})"
-
         if event.start_time and event.description:
             if not event.stop_time or event.stop_time >= event.start_time:
                 show_create_btn = True
@@ -353,22 +348,13 @@ def get_event_constructor(
         stop_text = event.stop_time.strftime("%H:%M") if event.stop_time else ""
         description_text = event.description if event.description else "—"
         recurrent_text = event.recurrent.get_name(locale) if event.recurrent else "—"
-        participant_names = []
-        if event.participants:
-            participant_names = [event.all_user_participants.get(tg_id, str(tg_id)) for tg_id in event.participants]
-        participants_text = ", ".join(participant_names) if participant_names else "—"
-        creator_name = "—"
-        if event.creator_tg_id:
-            creator_name = event.all_user_participants.get(event.creator_tg_id, str(event.creator_tg_id))
         description_text = format_description(description_text, locale)
         text = (
             tr("📅 Дата: {value}", locale).format(value=date_text) + "\n"
             + tr("⏰ Начало: {value}", locale).format(value=start_text) + "\n"
             + tr("⏳ Окончание: {value}", locale).format(value=stop_text) + "\n"
             + tr("📝 Описание: {value}", locale).format(value=description_text) + "\n"
-            + tr("🔁 Повтор: {value}", locale).format(value=recurrent_text) + "\n"
-            + tr("👤 Создатель: {value}", locale).format(value=creator_name) + "\n"
-            + tr("👥 Участники: {value}", locale).format(value=participants_text) + "\n\n"
+            + tr("🔁 Повтор: {value}", locale).format(value=recurrent_text) + "\n\n"
             + tr("* - поля обязательные для заполнения", locale)
         )
     else:
@@ -381,8 +367,7 @@ def get_event_constructor(
     description_btn = InlineKeyboardButton(text=description, callback_data=f"create_event_description_{year}_{month}_{day}")
     emoji_btn = InlineKeyboardButton(text=(event.emoji if event and event.emoji else tr("Эмодзи", locale)), callback_data="emoji_open")
     recurrent_btn = InlineKeyboardButton(text=recurrent, callback_data=f"create_event_recurrent_{year}_{month}_{day}")
-    participants_btn = InlineKeyboardButton(text=participants, callback_data=f"create_event_participants_{year}_{month}_{day}")
-    buttons = [[start_btn, stop_btn], [emoji_btn], [description_btn], [recurrent_btn], [participants_btn]]
+    buttons = [[start_btn, stop_btn], [emoji_btn], [description_btn], [recurrent_btn]]
 
     if show_back_btn:
         callback_data = back_callback_data or "create_event_back_"
