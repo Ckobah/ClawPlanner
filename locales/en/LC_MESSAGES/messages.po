@@ -1,0 +1,476 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: tg-organazer\n"
+"POT-Creation-Date: 2026-02-07 00:00+0000\n"
+"PO-Revision-Date: 2026-02-07 00:00+0000\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Меню"
+msgstr "Menu"
+
+msgid "Меню:"
+msgstr "Menu:"
+
+msgid "Календарь"
+msgstr "Calendar"
+
+msgid "Ближайшие события"
+msgstr "Upcoming events"
+
+msgid "Участники"
+msgstr "Participants"
+
+msgid "Мой ID"
+msgstr "My ID"
+
+msgid "Помощь"
+msgstr "Help"
+
+msgid "Связать с Telegram"
+msgstr "Link with Telegram"
+
+msgid "↩Назад"
+msgstr "↩Back"
+
+msgid "↩ Вернуться в календарь"
+msgstr "↩ Back to calendar"
+
+msgid "Используйте кнопки для навигации."
+msgstr "Use the buttons to navigate."
+
+msgid "Не удалось определить ваш ID."
+msgstr "Could not determine your ID."
+
+msgid "Запустить бота"
+msgstr "Start bot"
+
+msgid "Показать мой Telegram ID"
+msgstr "Show my Telegram ID"
+
+msgid "Управление участниками"
+msgstr "Manage participants"
+
+msgid "⏭ Пропустить"
+msgstr "⏭ Skip"
+
+msgid "📍 Поделиться геолокацией"
+msgstr "📍 Share location"
+
+msgid "📅 Показать календарь"
+msgstr "📅 Show calendar"
+
+msgid "🗓 Ближайшие события"
+msgstr "🗓 Upcoming events"
+
+msgid "Привет, {name}!\nДля получения событий по твоему часовому поясу, тебе нужно поделиться геолокацией. Если ты живешь по Москоскому времени, то можешь нажать «Пропустить»."
+msgstr "Hi, {name}!\nTo receive events in your local timezone, please share your location. If you use Moscow time, you can tap \"Skip\"."
+
+msgid ""
+"👋 Привет! Я помогу планировать дела и напоминать о событиях.\n"
+"\n"
+"📌 Основные команды:\n"
+"• /start — запуск бота\n"
+"• /team — управление участниками (удаление лишних)\n"
+"• /help — это сообщение\n"
+"\n"
+"🗓️ Календарь и события:\n"
+"1) Открой «Календарь» и выбери дату.\n"
+"2) Нажми «✍️Создать событие».\n"
+"3) Укажи время начала/окончания и описание.\n"
+"4) При необходимости выбери повторения.\n"
+"5) Добавь участников и нажми «Сохранить событие».\n"
+"\n"
+"👥 Участники:\n"
+"• Чтобы добавить участника, отправь его контакт в чат.\n"
+"• Если человек еще не запускал бота — он появится с пометкой «не в боте».\n"
+"• Управление списком участников — команда /team.\n"
+"\n"
+"⏰ Ближайшие события:\n"
+"Нажми «Ближайшие события», чтобы увидеть список на несколько дней вперед.\n"
+"\n"
+"🗑️ Удаление событий:\n"
+"В календаре выбери дату и нажми «Удалить событие».\n"
+"\n"
+"Если что-то не работает — просто напиши @FamPlanner, помогу разобраться 😊"
+msgstr ""
+"👋 Hi! I can help you plan and remind about events.\n"
+"\n"
+"📌 Main commands:\n"
+"• /start — start the bot\n"
+"• /team — manage participants (remove extra)\n"
+"• /help — this message\n"
+"\n"
+"🗓️ Calendar and events:\n"
+"1) Open \"Calendar\" and select a date.\n"
+"2) Tap \"✍️Create event\".\n"
+"3) Set start/end time and description.\n"
+"4) Choose recurrence if needed.\n"
+"5) Add participants and tap \"Save event\".\n"
+"\n"
+"👥 Participants:\n"
+"• To add a participant, send their contact in chat.\n"
+"• If a person has not started the bot yet, they appear as \"not in bot\".\n"
+"• Manage participant list with /team.\n"
+"\n"
+"⏰ Upcoming events:\n"
+"Tap \"Upcoming events\" to see the next days.\n"
+"\n"
+"🗑️ Deleting events:\n"
+"In calendar, choose a date and tap \"Delete event\".\n"
+"\n"
+"If something does not work, message @FamPlanner."
+
+msgid "📅 Выберите дату события:"
+msgstr "📅 Choose event date:"
+
+msgid "Выберите дату события:"
+msgstr "Choose event date:"
+
+msgid "Выберите действие:"
+msgstr "Choose an action:"
+
+msgid "✍️ Создать событие на {date}"
+msgstr "✍️ Create event on {date}"
+
+msgid "✍️ Создать событие на <b>{date}</b> \n\n* - поля обязательные для заполнения"
+msgstr "✍️ Create event on <b>{date}</b> \n\n* - required fields"
+
+msgid "События на <b>{date}</b>:"
+msgstr "Events on <b>{date}</b>:"
+
+msgid "Вы выбрали дату: <b>{date}</b>"
+msgstr "You selected: <b>{date}</b>"
+
+msgid "🗑 Удалить событие"
+msgstr "🗑 Delete event"
+
+msgid "Выберите эмодзи:"
+msgstr "Choose emoji:"
+
+msgid "Без эмодзи"
+msgstr "No emoji"
+
+msgid "Начало *"
+msgstr "Start *"
+
+msgid "Окончание"
+msgstr "End"
+
+msgid "Описание *"
+msgstr "Description *"
+
+msgid "Повтор"
+msgstr "Repeat"
+
+msgid "Эмодзи"
+msgstr "Emoji"
+
+msgid "💾 Сохранить событие"
+msgstr "💾 Save event"
+
+msgid "не в боте"
+msgstr "not in bot"
+
+msgid "Добавь пользователя, нажми скрепку"
+msgstr "Add a participant, tap the paperclip"
+
+msgid "Введите часы (0-23):"
+msgstr "Enter hours (0-23):"
+
+msgid "Введите минуты (0-59):"
+msgstr "Enter minutes (0-59):"
+
+msgid "Укажите время начала события"
+msgstr "Set event start time"
+
+msgid "Укажите время окончания события"
+msgstr "Set event end time"
+
+msgid "\n\n (Время начала события: {time})"
+msgstr "\n\n (Event start time: {time})"
+
+msgid "Опиши, что будет в событии:"
+msgstr "Describe the event:"
+
+msgid "Как часто повторять событие:"
+msgstr "How often should this event repeat?"
+
+msgid "Добавь пользователя: нажми 📎скрепку ➡️ 👤Контакт ➡️ выбери участника события ➡️ Отправить контакт"
+msgstr "Add a participant: tap 📎 paperclip -> 👤 Contact -> choose a participant -> send contact"
+
+msgid "Событие не найдено"
+msgstr "Event not found"
+
+msgid "Только просмотр"
+msgstr "Read-only"
+
+msgid "📅 Дата: {value}"
+msgstr "📅 Date: {value}"
+
+msgid "⏰ Начало: {value}"
+msgstr "⏰ Start: {value}"
+
+msgid "⏳ Окончание: {value}"
+msgstr "⏳ End: {value}"
+
+msgid "📝 Описание: {value}"
+msgstr "📝 Description: {value}"
+
+msgid "🔁 Повтор: {value}"
+msgstr "🔁 Repeat: {value}"
+
+msgid "👤 Создатель: {value}"
+msgstr "👤 Creator: {value}"
+
+msgid "👥 Участники: {value}"
+msgstr "👥 Participants: {value}"
+
+msgid "* - поля обязательные для заполнения"
+msgstr "* - required fields"
+
+msgid "Ближайшие события:"
+msgstr "Upcoming events:"
+
+msgid "Ближайшие события не найдены"
+msgstr "No upcoming events found"
+
+msgid "Выберете события для удаления:"
+msgstr "Select events to delete:"
+
+msgid "Отмена"
+msgstr "Cancel"
+
+msgid "🗑 Удалить"
+msgstr "🗑 Delete"
+
+msgid "🗑 Удалить полностью"
+msgstr "🗑 Delete entirely"
+
+msgid "🗑 Удалить на дату {date}"
+msgstr "🗑 Delete on {date}"
+
+msgid "Событие повторяющееся.\nОтмените событие на дату {formatted_date} или удалите его полностью"
+msgstr "This is a recurring event.\nCancel it on {formatted_date} or delete it entirely"
+
+msgid "Событие не добавлено в календарь."
+msgstr "Event was not added to the calendar."
+
+msgid "Не добавлять"
+msgstr "Do not add"
+
+msgid "Участник"
+msgstr "Participant"
+
+msgid "Участник {user_name} отказался от участия в событии: {event_info}"
+msgstr "Participant {user_name} declined the event: {event_info}"
+
+msgid "Не удалось перенести событие."
+msgstr "Failed to reschedule the event."
+
+msgid "на 1 час"
+msgstr "by 1 hour"
+
+msgid "на завтра"
+msgstr "to tomorrow"
+
+msgid "Событие перенесено {human}."
+msgstr "Event rescheduled {human}."
+
+msgid "Перенести на 1 час"
+msgstr "Postpone by 1 hour"
+
+msgid "Перенести на завтра"
+msgstr "Postpone to tomorrow"
+
+msgid "Удалить выбранных"
+msgstr "Delete selected"
+
+msgid "Закрыть"
+msgstr "Close"
+
+msgid "У вас нет привязанных участников."
+msgstr "You have no linked participants."
+
+msgid "У вас нет участников."
+msgstr "You have no participants."
+
+msgid "Список привязанных участников. Выберите лишних и нажмите удалить."
+msgstr "Linked participants. Choose extra participants and tap delete."
+
+msgid "Список участников. Выберите лишних и нажмите Удалить."
+msgstr "Participants list. Choose extra participants and tap Delete."
+
+msgid "Выберите участников для удаления."
+msgstr "Select participants to delete."
+
+msgid "Все участники удалены."
+msgstr "All participants deleted."
+
+msgid "Управление участниками закрыто."
+msgstr "Participant management closed."
+
+msgid "Удалено: {count}. Выберите следующих участников."
+msgstr "Deleted: {count}. Choose the next participants."
+
+msgid "Удалено: {count}. Выберите новых участников."
+msgstr "Deleted: {count}. Choose new participants."
+
+msgid "Похоже этот номер не зарегистрирован в телеграмм!"
+msgstr "This phone number is not registered in Telegram."
+
+msgid "Нельзя добавлять себя"
+msgstr "You cannot add yourself."
+
+msgid "Пользователь {name} уже добавлен в ваши контакты!"
+msgstr "User {name} is already in your contacts!"
+
+msgid "Пользователь {name} добавлен в ваши контакты!"
+msgstr "User {name} added to your contacts!"
+
+msgid "Отправьте ему приглашение в FamPlanner_bot. Вы сможете добавлять его, как участника события, после того как он нажмет START. Перешлите ему следующее сообщение:"
+msgstr "Send this person an invite to FamPlanner_bot. You can add them as a participant after they press START. Forward the following message:"
+
+msgid "Привет!\nДавай вместе создавать события и строить планы!\nЗапусти бота и нажми START.\nВот ссылка: https://t.me/FamPlanner_bot"
+msgstr "Hi!\nLet's create events and plan together!\nStart the bot and press START.\nLink: https://t.me/FamPlanner_bot"
+
+msgid "Продолжить создание события"
+msgstr "Continue creating event"
+
+msgid "Участник добавлен в контакты. Можно продолжить создание события."
+msgstr "Participant added to contacts. You can continue creating the event."
+
+msgid "Не удалось получить данные пользователя, попробуйте еще раз"
+msgstr "Could not get user data, please try again."
+
+msgid "Некорректный запрос."
+msgstr "Invalid request."
+
+msgid "Некорректные данные."
+msgstr "Invalid data."
+
+msgid "Этот запрос не для вас."
+msgstr "This request is not for you."
+
+msgid "Запрос отклонен."
+msgstr "Request declined."
+
+msgid "Неизвестное действие."
+msgstr "Unknown action."
+
+msgid "Связь подтверждена."
+msgstr "Link confirmed."
+
+msgid "Пришел запрос на связь с MAX ботом.\nПодтвердите объединение."
+msgstr "A request to link with MAX bot has arrived.\nPlease confirm the link."
+
+msgid "Подтвердить"
+msgstr "Confirm"
+
+msgid "Отклонить"
+msgstr "Decline"
+
+msgid "Этот Telegram ID уже связан с другим MAX ID."
+msgstr "This Telegram ID is already linked to another MAX ID."
+
+msgid "Этот MAX ID уже связан с другим Telegram ID."
+msgstr "This MAX ID is already linked to another Telegram ID."
+
+msgid "Событие не найдено. Откройте создание события заново."
+msgstr "Event not found. Reopen event creation."
+
+msgid "Введите число."
+msgstr "Enter a number."
+
+msgid "Часы должны быть от 0 до 23."
+msgstr "Hours must be between 0 and 23."
+
+msgid "Минуты должны быть от 0 до 59."
+msgstr "Minutes must be between 0 and 59."
+
+msgid "Готово."
+msgstr "Done."
+
+msgid "Ваш ID: {user_id}"
+msgstr "Your ID: {user_id}"
+
+msgid "Отправьте числовой Telegram ID."
+msgstr "Send a numeric Telegram ID."
+
+msgid "Запрос отправлен в Telegram. Подтвердите в Telegram боте."
+msgstr "Request sent to Telegram. Confirm it in Telegram bot."
+
+msgid "Не удалось отправить запрос в Telegram."
+msgstr "Failed to send request to Telegram."
+
+msgid "Для синхронизации событий с Telegram ботом FamPlanner_bot пришлите свой telegram ID."
+msgstr "To sync events with Telegram bot FamPlanner_bot, send your Telegram ID."
+
+msgid "Use: /language ru|en"
+msgstr "Use: /language ru|en"
+
+msgid "Язык переключен на русский."
+msgstr "Language switched to Russian."
+
+msgid "Language switched to English."
+msgstr "Language switched to English."
+
+msgid "Напоминание о событии"
+msgstr "Event reminder"
+
+msgid "Через 1 час:"
+msgstr "In 1 hour:"
+
+msgid "Время: {start}"
+msgstr "Time: {start}"
+
+msgid "Описание: {description}"
+msgstr "Description: {description}"
+
+msgid "{creator} добавил событие"
+msgstr "{creator} added an event"
+
+msgid "Дата: {date}"
+msgstr "Date: {date}"
+
+msgid "Никогда"
+msgstr "Never"
+
+msgid "Ежедневно"
+msgstr "Daily"
+
+msgid "Еженедельно"
+msgstr "Weekly"
+
+msgid "Ежемесячно"
+msgstr "Monthly"
+
+msgid "Каждый год"
+msgstr "Yearly"
+
+msgid "Could not read location. Please try again."
+msgstr "Could not read location. Please try again."
+
+msgid "Event not found. Please try again."
+msgstr "Event not found. Please try again."
+
+msgid "Please enter a number."
+msgstr "Please enter a number."
+
+msgid "Hour must be between 0 and 23."
+msgstr "Hour must be between 0 and 23."
+
+msgid "Minutes must be between 0 and 59."
+msgstr "Minutes must be between 0 and 59."
+
+msgid "Updated."
+msgstr "Updated."
+
+msgid "Unknown command."
+msgstr "Unknown command."
+
+msgid "App started"
+msgstr "App started"

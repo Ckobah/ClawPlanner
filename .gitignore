@@ -1,0 +1,20 @@
+
+# local runtime
+.env
+.venv/
+venv/
+__pycache__/
+bot.db
+*.pyc
+*.pyo
+*.pyd
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp3
+*.ogg
+*.wav
+
+api/node_modules/
+web/node_modules/

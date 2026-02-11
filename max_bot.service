@@ -1,0 +1,15 @@
+[Unit]
+Description=MaxOrganizerBot
+
+[Service]
+ExecStartPre=/bin/sleep 2
+WorkingDirectory=/home/tg_bot
+ExecStart=/bin/bash -c "/root/.local/bin/uv run alembic upgrade heads; /root/.local/bin/uv run /home/tg_bot/max_bot/main.py"
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/var/log/max_bot.log
+StandardError=append:/var/log/max_bot.log
+
+[Install]
+WantedBy=multi-user.target
