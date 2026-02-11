@@ -675,11 +675,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     text = (update.message.text or "").strip()
-    if _is_calendar_text(text):
-        await update.message.reply_text(tr("Используйте кнопки для навигации.", locale))
-        return
-
     user_id = update.effective_user.id if update.effective_user else update.effective_chat.id
+
+    if _is_calendar_text(text):
+        parsed = await parse_event_from_text(user_id=user_id, source_text=text, source_label="text")
+        if parsed and (parsed.get("event_date") or parsed.get("start_time") or parsed.get("title") or parsed.get("description")):
+            status_msg = await update.message.reply_text(tr("Понял запрос по событию, добавляю в календарь…", locale))
+            await _save_parsed_event(update, status_msg, parsed, locale)
+            return
+
+        # If it sounds calendar-related but we could not parse explicit event fields,
+        # fall through to AI dialogue instead of dead-end button hint.
+
     answer = await ask_clawd(user_id=user_id, text=text)
     await update.message.reply_text(answer[:3900])
 
