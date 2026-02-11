@@ -4,27 +4,92 @@
 
 English version: `README.md`.
 
-## Быстрый запуск на хосте с OpenClaw
+## Установка с нуля (для стороннего пользователя)
 
+### 1) Что нужно заранее
+- Linux-сервер (Ubuntu/Debian)
+- `python3`, `python3-venv`, `git`, `ffmpeg`
+- PostgreSQL (локально или удалённо)
+- Telegram Bot Token от `@BotFather`
+- свой `tg_id` (кому бот будет отвечать)
+
+### 2) Установка системных зависимостей
 ```bash
-git clone <YOUR_GITHUB_REPO_URL> tg_bot_clawd
-cd tg_bot_clawd
-./scripts/configure.sh
-./scripts/install.sh
-./scripts/check.sh
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip ffmpeg postgresql-client
 ```
 
-Что делает установка:
-- создает Python venv и ставит зависимости;
-- настраивает `.env` (token, `ALLOWED_TG_IDS`, PostgreSQL);
-- применяет миграции Alembic;
-- поднимает user systemd сервис `tg-bot-clawd.service`.
+Если PostgreSQL на этом же сервере:
+```bash
+sudo apt install -y postgresql
+```
 
-После установки из коробки работают:
-- ограничение доступа по `ALLOWED_TG_IDS`;
-- календарный бот + AI fallback для некалендарных запросов;
-- локальный OCR фото/PDF (RapidOCR);
-- локальная расшифровка голосовых (Whisper/faster-whisper).
+### 2.1) Создание БД/пользователя PostgreSQL (рекомендуется)
+```bash
+sudo -u postgres psql
+```
+
+Внутри `psql`:
+```sql
+CREATE USER clawd_bot WITH PASSWORD 'СЛОЖНЫЙ_ПАРОЛЬ_СЮДА';
+CREATE DATABASE clawd_bot OWNER clawd_bot;
+GRANT ALL PRIVILEGES ON DATABASE clawd_bot TO clawd_bot;
+\q
+```
+
+Параметры для `.env`:
+```env
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=clawd_bot
+DB_USERNAME=clawd_bot
+DB_PASSWORD=СЛОЖНЫЙ_ПАРОЛЬ_СЮДА
+```
+
+### 3) Клонирование проекта
+```bash
+git clone https://github.com/Ckobah/ClawPlanner ~/tg_bot_clawd
+cd ~/tg_bot_clawd
+```
+
+### 4) Настройка `.env` (интерактивно)
+```bash
+./scripts/configure.sh
+```
+Скрипт спросит:
+- `TG_BOT_TOKEN`
+- `ALLOWED_TG_IDS` (обычно один ваш `tg_id`)
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
+- `WHISPER_MODEL`, `WHISPER_LANGUAGE`
+
+### 5) Установка и запуск
+```bash
+./scripts/install.sh
+```
+Скрипт:
+- создаст `.venv`
+- поставит зависимости
+- применит миграции
+- создаст user systemd-сервис `tg-bot-clawd.service`
+- запустит его
+
+### 6) Проверка
+```bash
+./scripts/check.sh
+systemctl --user status tg-bot-clawd.service --no-pager -n 30
+journalctl --user -u tg-bot-clawd.service -n 50 --no-pager
+```
+
+### 7) Проверка в Telegram
+В `@ваш_бот`:
+1. `/start`
+2. `📅 Показать календарь`
+3. отправить фото афиши / PDF / голосовое
+
+### 8) Автозапуск после ребута (важно)
+```bash
+sudo loginctl enable-linger $USER
+```
 
 ## Возможности
 - Создание и просмотр событий через календарь.

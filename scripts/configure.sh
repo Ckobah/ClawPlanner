@@ -24,10 +24,10 @@ read -r -p "DB_HOST [127.0.0.1]: " DB_HOST
 DB_HOST=${DB_HOST:-127.0.0.1}
 read -r -p "DB_PORT [5432]: " DB_PORT
 DB_PORT=${DB_PORT:-5432}
-read -r -p "DB_NAME [postgres]: " DB_NAME
-DB_NAME=${DB_NAME:-postgres}
-read -r -p "DB_USERNAME [postgres]: " DB_USERNAME
-DB_USERNAME=${DB_USERNAME:-postgres}
+read -r -p "DB_NAME [clawd_bot]: " DB_NAME
+DB_NAME=${DB_NAME:-clawd_bot}
+read -r -p "DB_USERNAME [clawd_bot]: " DB_USERNAME
+DB_USERNAME=${DB_USERNAME:-clawd_bot}
 read -r -s -p "DB_PASSWORD: " DB_PASSWORD
 echo
 read -r -p "WHISPER_MODEL [small]: " WHISPER_MODEL
