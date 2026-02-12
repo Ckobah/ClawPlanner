@@ -91,6 +91,28 @@ journalctl --user -u tg-bot-clawd.service -n 50 --no-pager
 sudo loginctl enable-linger $USER
 ```
 
+## Обновление бота до последней версии
+
+### Одна команда (рекомендуется)
+```bash
+cd ~/tg_bot_clawd && ./scripts/update.sh
+```
+
+Что делает автоматически:
+- подтягивает свежий код из GitHub
+- обновляет Python-зависимости
+- применяет Alembic-миграции
+- перезапускает `tg-bot-clawd.service`
+- показывает статус сервиса и последние логи
+
+### Если обновление не прошло
+```bash
+cd ~/tg_bot_clawd
+./scripts/check.sh
+systemctl --user status tg-bot-clawd.service --no-pager -n 50
+journalctl --user -u tg-bot-clawd.service -n 100 --no-pager
+```
+
 ## Возможности
 - Создание и просмотр событий через календарь.
 - Выбор времени начала/окончания и описание.

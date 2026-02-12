@@ -91,6 +91,28 @@ In `@your_bot`:
 sudo loginctl enable-linger $USER
 ```
 
+## Update bot to latest version
+
+### One command (recommended)
+```bash
+cd ~/tg_bot_clawd && ./scripts/update.sh
+```
+
+What it does automatically:
+- pulls latest code from GitHub
+- updates Python dependencies
+- applies Alembic migrations
+- restarts `tg-bot-clawd.service`
+- prints service status and recent logs
+
+### If update fails
+```bash
+cd ~/tg_bot_clawd
+./scripts/check.sh
+systemctl --user status tg-bot-clawd.service --no-pager -n 50
+journalctl --user -u tg-bot-clawd.service -n 100 --no-pager
+```
+
 ## Features
 - Calendar-based event creation and browsing
 - Time/description/recurrence editing
