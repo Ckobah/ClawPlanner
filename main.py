@@ -135,6 +135,38 @@ def _is_non_event_query(text: str) -> bool:
     return any(m in text_l for m in markers)
 
 
+def _is_weather_query(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+    markers = ("погод", "weather", "температур", "дожд", "снег", "ветер", "прогноз")
+    return any(m in text_l for m in markers)
+
+
+async def get_weather_answer(text: str) -> str:
+    text_l = (text or "").lower()
+    location = "Moscow"
+    if "моск" in text_l:
+        location = "Moscow"
+
+    # wttr.in supports one-line concise output via format params.
+    cmd = f"curl -fsSL 'https://wttr.in/{location}?lang=ru&format=3'"
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await proc.communicate()
+        if proc.returncode != 0:
+            return "Не смог получить погоду прямо сейчас. Попробуй ещё раз через минуту."
+        out = stdout.decode("utf-8", errors="ignore").strip()
+        return out or "Не смог получить погоду прямо сейчас."
+    except Exception:
+        logger.exception("weather fetch failed")
+        return "Не смог получить погоду прямо сейчас. Попробуй ещё раз через минуту."
+
+
 def _is_name_query(text: str) -> bool:
     text_l = (text or "").lower().strip()
     if not text_l:
@@ -785,6 +817,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 )
             )
             return
+
+    if _is_weather_query(text):
+        weather_answer = await get_weather_answer(text)
+        await update.message.reply_text(weather_answer[:3900])
+        return
 
     should_try_event_parse = (
         _is_calendar_text(text)
