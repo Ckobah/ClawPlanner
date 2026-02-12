@@ -85,6 +85,7 @@ def _is_calendar_text(text: str) -> bool:
         return False
     keywords = (
         "календар", "событ", "встреч", "напомин", "дата", "время", "перенес", "перенос", "удалить событие", "создать событие",
+        "tg_users", "часовой пояс", "таймзона", "timezone", "язык", "language",
         "calendar", "event", "remind", "meeting", "schedule",
     )
     return any(k in text_l for k in keywords)
@@ -124,9 +125,21 @@ async def ask_clawd(user_id: int, text: str) -> str:
 
     try:
         payload = json.loads(stdout.decode("utf-8", errors="ignore"))
-        parts = (payload.get("result") or {}).get("payloads") or []
+        result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+        stop_reason = (result.get("stopReason") or result.get("stop_reason") or "").lower()
+
+        if stop_reason == "error":
+            logger.error("openclaw agent stop_reason=error: %s", payload)
+            return "Сейчас не получилось обработать запрос. Попробуй ещё раз через минуту."
+
+        parts = result.get("payloads") or []
         texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")]
         answer = "\n\n".join(texts).strip()
+
+        if "Unhandled stop reason: error" in answer:
+            logger.error("openclaw returned unhandled stop reason in text: %s", answer)
+            return "Сейчас не получилось обработать запрос. Попробуй ещё раз через минуту."
+
         return answer or "Пустой ответ от AI. Попробуй переформулировать запрос."
     except Exception:
         logger.exception("Failed to parse openclaw agent response")
