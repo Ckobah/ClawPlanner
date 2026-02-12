@@ -43,6 +43,7 @@ fi
 
 # Run migrations (safe to run repeatedly)
 ./.venv/bin/alembic upgrade heads
+./.venv/bin/python ./scripts/sync_user_md.py || echo "[!] USER.md sync skipped"
 
 # Restart service
 systemctl --user daemon-reload

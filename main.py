@@ -91,6 +91,27 @@ def _is_calendar_text(text: str) -> bool:
     return any(k in text_l for k in keywords)
 
 
+def _is_name_query(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+    markers = (
+        "как меня зовут", "моё имя", "мое имя", "как зовут", "кто я",
+        "my name", "what is my name", "who am i",
+    )
+    return any(m in text_l for m in markers)
+
+
+def _is_profile_query(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+    markers = (
+        "tg_users", "часовой пояс", "таймзона", "timezone", "язык", "language", "профиль",
+    )
+    return any(m in text_l for m in markers)
+
+
 async def ask_clawd(user_id: int, text: str) -> str:
     session_id = f"{AI_SESSION_PREFIX}_{user_id}"
     prompt = (
@@ -688,6 +709,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     text = (update.message.text or "").strip()
     user_id = update.effective_user.id if update.effective_user else update.effective_chat.id
+
+    if _is_name_query(text):
+        user = await db_controller.get_user(user_id, platform="tg")
+        if user:
+            display_name = user.first_name or user.username
+            if display_name:
+                await update.message.reply_text(tr("Вас зовут: {name}", locale).format(name=display_name))
+                return
+        await update.message.reply_text(tr("Пока не вижу имени в базе. Напишите, как к вам обращаться.", locale))
+        return
+
+    if _is_profile_query(text):
+        user = await db_controller.get_user(user_id, platform="tg")
+        if user:
+            display_name = user.first_name or user.username or str(user_id)
+            tz = user.time_zone or DEFAULT_TIMEZONE_NAME
+            lang = user.language_code or "ru"
+            await update.message.reply_text(
+                tr("Профиль из tg_users:\nИмя: {name}\nЧасовой пояс: {tz}\nЯзык: {lang}", locale).format(
+                    name=display_name,
+                    tz=tz,
+                    lang=lang,
+                )
+            )
+            return
 
     if _is_calendar_text(text):
         parsed = await parse_event_from_text(user_id=user_id, source_text=text, source_label="text")

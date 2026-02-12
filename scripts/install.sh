@@ -29,6 +29,7 @@ fi
 # DB migrations (requires filled .env)
 if grep -q "^DB_PASSWORD=.*[^[:space:]]" .env; then
   ./.venv/bin/alembic upgrade heads || echo "[!] alembic failed. Check DB credentials in .env"
+  ./.venv/bin/python ./scripts/sync_user_md.py || echo "[!] USER.md sync skipped"
 else
   echo "[i] Skip alembic: DB credentials not configured yet"
 fi
