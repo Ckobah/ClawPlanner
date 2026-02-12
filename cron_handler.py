@@ -10,9 +10,17 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config import TOKEN, database_url
 from database.db_controller import db_controller
 from i18n import resolve_user_locale, tr
-from max_bot.client import build_max_api
-from max_bot.compat import InlineKeyboardButton as MaxInlineKeyboardButton
-from max_bot.compat import InlineKeyboardMarkup as MaxInlineKeyboardMarkup
+
+try:
+    from max_bot.client import build_max_api
+    from max_bot.compat import InlineKeyboardButton as MaxInlineKeyboardButton
+    from max_bot.compat import InlineKeyboardMarkup as MaxInlineKeyboardMarkup
+    MAX_ENABLED = True
+except Exception:  # noqa: BLE001
+    build_max_api = None
+    MaxInlineKeyboardButton = None
+    MaxInlineKeyboardMarkup = None
+    MAX_ENABLED = False
 
 engine = create_async_engine(database_url, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -34,7 +42,7 @@ def _build_reminder_text(event: dict, send_now: bool, locale: str | None = None)
 
 async def send_messages(send_now: bool = False):
     bot = telegram.Bot(token=TOKEN)
-    max_api = await build_max_api()
+    max_api = await build_max_api() if MAX_ENABLED and build_max_api else None
     try:
         now = datetime.datetime.now(datetime.timezone.utc)
         now = now.replace(second=0, microsecond=0)
@@ -45,8 +53,16 @@ async def send_messages(send_now: bool = False):
         while True:
             async with AsyncSessionLocal() as session:
                 events_tg = await db_controller.get_current_day_events_all_users(event_dt=now, session=session, limit=limit, offset=offset)
-                events_max = await db_controller.get_current_day_events_all_users(
-                    event_dt=now, session=session, limit=limit, offset=offset, platform="max"
+                events_max = (
+                    await db_controller.get_current_day_events_all_users(
+                        event_dt=now,
+                        session=session,
+                        limit=limit,
+                        offset=offset,
+                        platform="max",
+                    )
+                    if MAX_ENABLED
+                    else []
                 )
 
             logger.info(f"** len events tg: {len(events_tg)}")
@@ -84,38 +100,40 @@ async def send_messages(send_now: bool = False):
                 await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
                 await asyncio.sleep(0.001)
 
-            for event in events_max:
-                user_id = event.get("tg_id")
-                if not user_id:
-                    continue
-                locale = await resolve_user_locale(user_id, platform="max")
-                text = _build_reminder_text(event, send_now, locale=locale)
-                event_id = event.get("event_id")
-                attachments = None
-                if event_id:
-                    buttons = [
-                        [
-                            MaxInlineKeyboardButton(
-                                tr("Перенести на 1 час", locale),
-                                callback_data=f"reschedule_event_{event_id}_hour",
-                            )
-                        ],
-                        [
-                            MaxInlineKeyboardButton(
-                                tr("Перенести на завтра", locale),
-                                callback_data=f"reschedule_event_{event_id}_day",
-                            )
-                        ],
-                    ]
-                    reply_markup = MaxInlineKeyboardMarkup(buttons)
-                    attachments = reply_markup.to_attachments()
-                await max_api.send_message(text=text, user_id=user_id, attachments=attachments, include_menu=False, locale=locale)
-                await asyncio.sleep(0.001)
+            if MAX_ENABLED and max_api:
+                for event in events_max:
+                    user_id = event.get("tg_id")
+                    if not user_id:
+                        continue
+                    locale = await resolve_user_locale(user_id, platform="max")
+                    text = _build_reminder_text(event, send_now, locale=locale)
+                    event_id = event.get("event_id")
+                    attachments = None
+                    if event_id:
+                        buttons = [
+                            [
+                                MaxInlineKeyboardButton(
+                                    tr("Перенести на 1 час", locale),
+                                    callback_data=f"reschedule_event_{event_id}_hour",
+                                )
+                            ],
+                            [
+                                MaxInlineKeyboardButton(
+                                    tr("Перенести на завтра", locale),
+                                    callback_data=f"reschedule_event_{event_id}_day",
+                                )
+                            ],
+                        ]
+                        reply_markup = MaxInlineKeyboardMarkup(buttons)
+                        attachments = reply_markup.to_attachments()
+                    await max_api.send_message(text=text, user_id=user_id, attachments=attachments, include_menu=False, locale=locale)
+                    await asyncio.sleep(0.001)
 
             await engine.dispose()
             offset += limit
     finally:
-        await max_api.close()
+        if max_api:
+            await max_api.close()
 
 
 if __name__ == "__main__":
