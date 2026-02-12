@@ -54,5 +54,7 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable --now tg-bot-clawd.service
 
+./scripts/setup_reminder_cron.sh || echo "[!] Failed to setup reminder cron jobs"
+
 echo "[+] Installed and started tg-bot-clawd.service"
 echo "[i] Check status: systemctl --user status tg-bot-clawd.service"

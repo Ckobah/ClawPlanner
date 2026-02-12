@@ -49,6 +49,8 @@ fi
 systemctl --user daemon-reload
 systemctl --user restart tg-bot-clawd.service
 
+./scripts/setup_reminder_cron.sh || echo "[!] Failed to setup reminder cron jobs"
+
 # Health output
 echo "\n== Service status =="
 systemctl --user --no-pager -n 20 status tg-bot-clawd.service || true
