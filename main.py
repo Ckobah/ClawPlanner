@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -84,11 +85,32 @@ def _is_calendar_text(text: str) -> bool:
     if not text_l:
         return False
     keywords = (
-        "календар", "событ", "встреч", "напомин", "дата", "время", "перенес", "перенос", "удалить событие", "создать событие",
+        "календар", "событ", "встреч", "напомин", "дата", "время", "перенес", "перенос", "удалить событие", "создать событие", "создай", "добавь", "напомни",
         "tg_users", "часовой пояс", "таймзона", "timezone", "язык", "language",
         "calendar", "event", "remind", "meeting", "schedule",
     )
     return any(k in text_l for k in keywords)
+
+
+def _has_datetime_cues(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+
+    # Explicit date/time markers
+    if re.search(r"\b\d{1,2}:\d{2}\b", text_l):
+        return True
+    if re.search(r"\b\d{1,2}[./-]\d{1,2}([./-]\d{2,4})?\b", text_l):
+        return True
+
+    weekday_markers = (
+        "понедель", "вторник", "сред", "четвер", "пятниц", "суббот", "воскрес",
+        "завтра", "послезавтра", "сегодня",
+    )
+    if any(w in text_l for w in weekday_markers):
+        return True
+
+    return False
 
 
 def _is_name_query(text: str) -> bool:
@@ -114,9 +136,16 @@ def _is_profile_query(text: str) -> bool:
 
 async def ask_clawd(user_id: int, text: str) -> str:
     session_id = f"{AI_SESSION_PREFIX}_{user_id}"
+    user = await db_controller.get_user(user_id, platform="tg")
+    user_name = (user.first_name or user.username) if user else None
+    user_tz = (user.time_zone or DEFAULT_TIMEZONE_NAME) if user else DEFAULT_TIMEZONE_NAME
+
     prompt = (
         "Ты помогаешь пользователю в Telegram. "
-        "Отвечай кратко и по делу, на русском языке.\n\n"
+        "Отвечай кратко и по делу, на русском языке.\n"
+        "Если у тебя уже есть timezone пользователя, никогда не проси его повторно.\n"
+        "Если пользователь просит создать событие и есть дата/время/описание — сразу создавай, без вопросов про TZ.\n\n"
+        f"Контекст профиля: name={user_name or 'unknown'}, timezone={user_tz}.\n"
         f"Сообщение пользователя: {text}"
     )
 
@@ -735,7 +764,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-    if _is_calendar_text(text):
+    if _is_calendar_text(text) or _has_datetime_cues(text):
         parsed = await parse_event_from_text(user_id=user_id, source_text=text, source_label="text")
         if parsed and (parsed.get("event_date") or parsed.get("start_time") or parsed.get("title") or parsed.get("description")):
             status_msg = await update.message.reply_text(tr("Понял запрос по событию, добавляю в календарь…", locale))
