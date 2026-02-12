@@ -7,6 +7,8 @@ import re
 import shlex
 import shutil
 import tempfile
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -145,23 +147,74 @@ def _is_weather_query(text: str) -> bool:
 
 async def get_weather_answer(text: str) -> str:
     text_l = (text or "").lower()
-    location = "Moscow"
-    if "моск" in text_l:
-        location = "Moscow"
 
-    # wttr.in supports one-line concise output via format params.
-    cmd = f"curl -fsSL 'https://wttr.in/{location}?lang=ru&format=3'"
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    # Пока поддерживаем основной кейс (Москва) стабильно и без OpenClaw-agent.
+    city_ru = "Москва"
+    lat, lon = 55.7558, 37.6176
+    tz = "Europe/Moscow"
+    if "моск" not in text_l and "moscow" not in text_l:
+        city_ru = "Москва"
+
+    def _fetch() -> str:
+        url = (
+            "https://api.open-meteo.com/v1/forecast?"
+            + urllib.parse.urlencode(
+                {
+                    "latitude": lat,
+                    "longitude": lon,
+                    "daily": "weathercode,temperature_2m_max,temperature_2m_min",
+                    "timezone": tz,
+                    "forecast_days": 3,
+                }
+            )
         )
-        stdout, _stderr = await proc.communicate()
-        if proc.returncode != 0:
-            return "Не смог получить погоду прямо сейчас. Попробуй ещё раз через минуту."
-        out = stdout.decode("utf-8", errors="ignore").strip()
-        return out or "Не смог получить погоду прямо сейчас."
+
+        with urllib.request.urlopen(url, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+        daily = data.get("daily") or {}
+        dates = daily.get("time") or []
+        t_max = daily.get("temperature_2m_max") or []
+        t_min = daily.get("temperature_2m_min") or []
+        codes = daily.get("weathercode") or []
+
+        if len(dates) < 2:
+            return "Не смог получить прогноз на завтра прямо сейчас."
+
+        code_map = {
+            0: "ясно",
+            1: "в основном ясно",
+            2: "переменная облачность",
+            3: "пасмурно",
+            45: "туман",
+            48: "изморозь",
+            51: "слабая морось",
+            53: "морось",
+            55: "сильная морось",
+            61: "слабый дождь",
+            63: "дождь",
+            65: "сильный дождь",
+            71: "слабый снег",
+            73: "снег",
+            75: "сильный снег",
+            80: "ливень",
+            81: "ливень",
+            82: "сильный ливень",
+            95: "гроза",
+        }
+
+        i = 1  # tomorrow
+        weather_desc = code_map.get(codes[i] if i < len(codes) else None, "без уточнения")
+        max_v = t_max[i] if i < len(t_max) else None
+        min_v = t_min[i] if i < len(t_min) else None
+
+        if max_v is None or min_v is None:
+            return f"Завтра в {city_ru}: {weather_desc}."
+
+        return f"Завтра в {city_ru}: {weather_desc}, от {round(min_v)}° до {round(max_v)}°C."
+
+    try:
+        return await asyncio.to_thread(_fetch)
     except Exception:
         logger.exception("weather fetch failed")
         return "Не смог получить погоду прямо сейчас. Попробуй ещё раз через минуту."
