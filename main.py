@@ -113,6 +113,28 @@ def _has_datetime_cues(text: str) -> bool:
     return False
 
 
+def _has_event_action_cues(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+    markers = (
+        "создай", "добавь", "заплан", "напомни", "встреч", "поездк", "еду", "иду", "буду",
+        "create", "add", "schedule", "plan", "remind",
+    )
+    return any(m in text_l for m in markers)
+
+
+def _is_non_event_query(text: str) -> bool:
+    text_l = (text or "").lower().strip()
+    if not text_l:
+        return False
+    markers = (
+        "погод", "weather", "температур", "дожд", "снег", "ветер",
+        "новост", "news", "курс", "доллар", "евро",
+    )
+    return any(m in text_l for m in markers)
+
+
 def _is_name_query(text: str) -> bool:
     text_l = (text or "").lower().strip()
     if not text_l:
@@ -764,7 +786,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-    if _is_calendar_text(text) or _has_datetime_cues(text):
+    should_try_event_parse = (
+        _is_calendar_text(text)
+        or (_has_datetime_cues(text) and _has_event_action_cues(text) and not _is_non_event_query(text))
+    )
+
+    if should_try_event_parse:
         parsed = await parse_event_from_text(user_id=user_id, source_text=text, source_label="text")
         if parsed and (parsed.get("event_date") or parsed.get("start_time") or parsed.get("title") or parsed.get("description")):
             status_msg = await update.message.reply_text(tr("Понял запрос по событию, добавляю в календарь…", locale))
