@@ -239,6 +239,7 @@ async def handle_note_text_input(update: Update, context: ContextTypes.DEFAULT_T
             await bot.edit_message_text(chat_id=source_chat_id, message_id=source_message_id, text=text, reply_markup=reply_markup)
         else:
             await update.message.reply_text(text=text, reply_markup=reply_markup)
+        await _safe_delete_message(update.message)
         return True
 
     note_id = state_edit.get("note_id")
