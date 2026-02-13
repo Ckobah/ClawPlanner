@@ -116,3 +116,47 @@ limit 100;
 ```
 
 Use this output to summarize recurring commitments, deadlines, and context-relevant notes embedded in descriptions.
+
+## 8) List user notes
+
+```sql
+select n.id, n.note_text, n.created_at, n.updated_at
+from public.tg_note n
+join public.tg_users u on u.id = n.user_id
+where (u.tg_id = :tg_id or u.max_id = :max_id)
+order by coalesce(n.updated_at, n.created_at) desc
+limit 200;
+```
+
+## 9) Create note
+
+```sql
+insert into public.tg_note (user_id, note_text)
+select u.id, :note_text
+from public.tg_users u
+where u.tg_id = :tg_id
+returning id;
+```
+
+## 10) Update note
+
+```sql
+update public.tg_note n
+set note_text = :note_text,
+    updated_at = now()
+where n.id = :note_id
+  and n.user_id = (
+    select u.id from public.tg_users u where u.tg_id = :tg_id
+  )
+returning n.id;
+```
+
+## 11) Delete note
+
+```sql
+delete from public.tg_note n
+where n.id = :note_id
+  and n.user_id = (
+    select u.id from public.tg_users u where u.tg_id = :tg_id
+  );
+```

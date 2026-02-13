@@ -6,9 +6,9 @@ from datetime import timedelta, timezone
 import pytest
 
 from config import DEFAULT_TIMEZONE
+from database import session as db_session
 from database.db_controller import db_controller
 from database.models.user_model import UserRelation
-from database import session as db_session
 from entities import Event, Recurrent, TgUser
 
 
@@ -160,3 +160,29 @@ async def test_save_update_user_creates_relation(db_session_fixture):
         result = (await session.execute(UserRelation.__table__.select())).all()
 
     assert result
+
+
+@pytest.mark.asyncio
+async def test_notes_crud(db_session_fixture):
+    user = TgUser.model_validate(type("U", (), {"id": 1, "first_name": "Alice"})())
+    await db_controller.save_update_user(tg_user=user)
+    user_row_id = await db_controller.get_user_row_id(external_id=1, platform="tg")
+    assert user_row_id is not None
+
+    note = await db_controller.create_note(user_id=user_row_id, note_text="Первая заметка")
+    assert note.id is not None
+
+    fetched = await db_controller.get_note_by_id(note_id=note.id, user_id=user_row_id)
+    assert fetched is not None
+    assert fetched.note_text == "Первая заметка"
+
+    notes = await db_controller.get_notes(user_id=user_row_id)
+    assert len(notes) == 1
+
+    updated = await db_controller.update_note(note_id=note.id, user_id=user_row_id, note_text="Обновленная заметка")
+    assert updated is not None
+    assert updated.note_text == "Обновленная заметка"
+
+    deleted = await db_controller.delete_note(note_id=note.id, user_id=user_row_id)
+    assert deleted is True
+    assert await db_controller.get_note_by_id(note_id=note.id, user_id=user_row_id) is None

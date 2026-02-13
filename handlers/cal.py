@@ -132,6 +132,8 @@ async def show_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     context.chat_data.pop("await_time_input", None)
     context.chat_data.pop("time_input_prompt_message_id", None)
     context.chat_data.pop("time_input_prompt_chat_id", None)
+    context.chat_data.pop("await_note_create", None)
+    context.chat_data.pop("await_note_edit", None)
 
     user = update.effective_chat
     tg_user = TgUser.model_validate(user)

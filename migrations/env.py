@@ -9,6 +9,7 @@ from alembic import context
 from database.session import Base, get_database_url  # или from database import Base
 from database.models.user_model import User, UserRelation
 from database.models.event_models import DbEvent, CanceledEvent
+from database.models.note_model import DbNote
 
 config = context.config
 if config.config_file_name is not None:

@@ -10,6 +10,7 @@ from entities import Event, TgUser
 from handlers.cal import handle_calendar_callback, show_calendar
 from handlers.contacts import handle_contact, handle_team_callback
 from handlers.events import handle_create_event_callback, handle_delete_event_callback, show_upcoming_events
+from handlers.notes import handle_note_callback, show_notes
 from handlers.start import start
 from tests.fakes import DummyMessage, make_update_with_callback, make_update_with_message
 
@@ -167,3 +168,65 @@ async def test_team_toggle_with_string_participant_id_marks_selected():
     markup = update.callback_query.markup_edits[0]["reply_markup"]
     button_texts = [button.text for row in markup.inline_keyboard for button in row]
     assert "Bob ❌" in button_texts
+
+
+@pytest.mark.asyncio
+async def test_show_notes_returns_markup(db_session_fixture):
+    update = make_update_with_message(user_id=1)
+    data: dict = {}
+    context = type("DummyContext", (), {"user_data": data, "chat_data": data})()
+
+    await show_notes(update, context=context)
+
+    assert update.message.replies
+    reply = update.message.replies[0]
+    assert isinstance(reply["reply_markup"], InlineKeyboardMarkup)
+    button_texts = [button.text for row in reply["reply_markup"].inline_keyboard for button in row]
+    assert "🗒Создать заметку" in button_texts
+
+
+@pytest.mark.asyncio
+async def test_note_open_and_delete_callbacks(db_session_fixture):
+    user = TgUser.model_validate(type("U", (), {"id": 1, "first_name": "Alice"})())
+    await db_controller.save_update_user(tg_user=user)
+    user_row_id = await db_controller.get_user_row_id(external_id=1, platform="tg")
+    assert user_row_id is not None
+
+    note = await db_controller.create_note(user_id=user_row_id, note_text="Текст заметки")
+    data: dict = {}
+    context = type("DummyContext", (), {"user_data": data, "chat_data": data})()
+
+    open_update = make_update_with_callback(data=f"note_open_{note.id}", user_id=1)
+    await handle_note_callback(open_update, context=context)
+
+    assert open_update.callback_query.edits
+    open_markup = open_update.callback_query.edits[0]["reply_markup"]
+    open_buttons = [button.text for row in open_markup.inline_keyboard for button in row]
+    assert "🔄 Редактировать" in open_buttons
+    assert "❌ Удалить" in open_buttons
+    assert "↩️ Назад" in open_buttons
+
+    delete_update = make_update_with_callback(data=f"note_delete_{note.id}", user_id=1)
+    await handle_note_callback(delete_update, context=context)
+
+    assert delete_update.callback_query.edits
+    assert await db_controller.get_note_by_id(note_id=note.id, user_id=user_row_id) is None
+
+
+@pytest.mark.asyncio
+async def test_handle_text_creates_note_when_waiting_state(db_session_fixture):
+    from main import handle_text
+
+    user = TgUser.model_validate(type("U", (), {"id": 1, "first_name": "Alice"})())
+    await db_controller.save_update_user(tg_user=user)
+    user_row_id = await db_controller.get_user_row_id(external_id=1, platform="tg")
+    assert user_row_id is not None
+
+    data: dict = {"await_note_create": {}}
+    context = type("DummyContext", (), {"user_data": data, "chat_data": data})()
+    update = make_update_with_message(message=DummyMessage(text="Новая заметка"), user_id=1)
+
+    await handle_text(update, context)
+
+    notes = await db_controller.get_notes(user_id=user_row_id)
+    assert any(note.note_text == "Новая заметка" for note in notes)

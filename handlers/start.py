@@ -19,14 +19,14 @@ def _commands_for_locale(locale: str) -> list[BotCommand]:
         return [
             BotCommand("start", "Start bot"),
             BotCommand("my_id", "Show my Telegram ID"),
-            # BotCommand("team", "Manage participants"),
+            BotCommand("team", "Manage participants"),
             BotCommand("help", "Help"),
             BotCommand("language", "Change language"),
         ]
     return [
         BotCommand("start", "Запустить бота"),
         BotCommand("my_id", "Показать мой Telegram ID"),
-        # BotCommand("team", "Управление участниками"),
+        BotCommand("team", "Управление участниками"),
         BotCommand("help", "Помощь"),
         BotCommand("language", "Сменить язык"),
     ]
@@ -52,6 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data.pop("await_time_input", None)
     context.chat_data.pop("time_input_prompt_message_id", None)
     context.chat_data.pop("time_input_prompt_chat_id", None)
+    context.chat_data.pop("await_note_create", None)
+    context.chat_data.pop("await_note_edit", None)
 
     user = update.effective_chat
     tg_user = TgUser.model_validate(user)
@@ -93,18 +95,25 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.chat_data.pop("await_time_input", None)
     context.chat_data.pop("time_input_prompt_message_id", None)
     context.chat_data.pop("time_input_prompt_chat_id", None)
+    context.chat_data.pop("await_note_create", None)
+    context.chat_data.pop("await_note_edit", None)
     locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
     text = (
         "👋 Привет! Я помогу планировать дела и напоминать о событиях.\n\n"
         "📌 Основные команды:\n"
         "• /start — запуск бота\n"
+        "• /team — управление участниками (удаление лишних)\n"
         "• /help — это сообщение\n\n"
         "🗓️ Календарь и события:\n"
         "1) Открой «Календарь» и выбери дату.\n"
         "2) Нажми «✍️Создать событие».\n"
         "3) Укажи время начала/окончания и описание.\n"
         "4) При необходимости выбери повторения.\n"
-        "5) Нажми «Сохранить событие».\n\n"
+        "5) Добавь участников и нажми «Сохранить событие».\n\n"
+        "👥 Участники:\n"
+        "• Чтобы добавить участника, отправь его контакт в чат.\n"
+        "• Если человек еще не запускал бота — он появится с пометкой «не в боте».\n"
+        "• Управление списком участников — команда /team.\n\n"
         "⏰ Ближайшие события:\n"
         "Нажми «Ближайшие события», чтобы увидеть список на несколько дней вперед.\n\n"
         "🗑️ Удаление событий:\n"
@@ -158,16 +167,25 @@ async def handle_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def show_main_menu_keyboard(message: Message) -> None:
     locale = await resolve_user_locale(getattr(message, "chat_id", None), platform="tg")
-    keyboard = [[tr("📅 Показать календарь", locale)], [tr("🗓 Ближайшие события", locale)]]
+    keyboard = [[tr("📅 Показать календарь", locale)], [tr("🗓 Ближайшие события", locale)], [tr("📝 Заметки", locale)]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await message.reply_text(tr("Меню:", locale), reply_markup=reply_markup)
+
+
+async def show_main_menu_keyboard_by_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    if not getattr(context, "bot", None):
+        return
+    locale = await resolve_user_locale(chat_id, platform="tg")
+    keyboard = [[tr("📅 Показать календарь", locale)], [tr("🗓 Ближайшие события", locale)], [tr("📝 Заметки", locale)]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    await context.bot.send_message(chat_id=chat_id, text=tr("Меню:", locale), reply_markup=reply_markup)
 
 
 async def show_main_menu(message: Message, add_text: str | None = None) -> None:
     logger.info("show_main_menu")
 
     locale = await resolve_user_locale(getattr(message, "chat_id", None), platform="tg")
-    keyboard = [[tr("📅 Показать календарь", locale)], [tr("🗓 Ближайшие события", locale)]]
+    keyboard = [[tr("📅 Показать календарь", locale)], [tr("🗓 Ближайшие события", locale)], [tr("📝 Заметки", locale)]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     text = f"{add_text}\n\n{tr('Выберите действие:', locale)}" if add_text else tr("Выберите действие:", locale)
 

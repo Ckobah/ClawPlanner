@@ -3,7 +3,7 @@ from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -11,6 +11,7 @@ from sqlalchemy.orm import aliased
 import config
 from config import NEAREST_EVENTS_DAYS
 from database.models.event_models import CanceledEvent, DbEvent, EventParticipant
+from database.models.note_model import DbNote
 from database.models.user_model import User as DB_User
 from database.models.user_model import UserRelation
 from database.session import AsyncSessionLocal
@@ -31,13 +32,41 @@ class DBController:
 
     @classmethod
     def _event_user_column(cls, platform: str | None):
-        platform = cls._normalize_platform(platform)
-        return DbEvent.max_id if platform == "max" else DbEvent.tg_id
+        return DbEvent.user_id
 
     @classmethod
     def _participant_id_column(cls, platform: str | None):
-        platform = cls._normalize_platform(platform)
-        return EventParticipant.participant_max_id if platform == "max" else EventParticipant.participant_tg_id
+        return EventParticipant.participant_user_id
+
+    @classmethod
+    async def _resolve_user_row_id_by_external(
+        cls,
+        external_id: int | None,
+        platform: str | None,
+        session: AsyncSession,
+    ) -> int | None:
+        if external_id is None:
+            return None
+        user_col = cls._user_id_column(platform)
+        return (await session.execute(select(DB_User.id).where(user_col == int(external_id)))).scalar_one_or_none()
+
+    @classmethod
+    async def _resolve_external_ids_by_user_row(
+        cls,
+        user_ids: list[int],
+        platform: str | None,
+        session: AsyncSession,
+    ) -> dict[int, int]:
+        user_ids = [int(item) for item in user_ids if item is not None]
+        if not user_ids:
+            return {}
+        user_col = cls._user_id_column(platform)
+        rows = (
+            await session.execute(
+                select(DB_User.id, user_col).where(DB_User.id.in_(user_ids), user_col.is_not(None))
+            )
+        ).all()
+        return {int(row[0]): int(row[1]) for row in rows if row[1] is not None}
     @staticmethod
     def get_effective_month_day(year: int, month: int, day: int) -> int:
         _, num_days = monthrange(year, month)
@@ -149,6 +178,13 @@ class DBController:
             return TgUser.model_validate(user)
 
     @staticmethod
+    async def get_user_row_id(external_id: int, platform: str | None = None) -> int | None:
+        user_col = DBController._user_id_column(platform)
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(DB_User.id).where(user_col == external_id))).scalar_one_or_none()
+            return int(user) if user is not None else None
+
+    @staticmethod
     async def set_user_language(user_id: int, language_code: str, platform: str | None = None) -> None:
         user_col = DBController._user_id_column(platform)
         async with AsyncSessionLocal() as session:
@@ -239,6 +275,18 @@ class DBController:
                 await session.execute(
                     update(UserRelation).where(UserRelation.related_user_id == secondary.id).values(related_user_id=primary.id)
                 )
+                await session.execute(
+                    update(DbNote).where(DbNote.user_id == secondary.id).values(user_id=primary.id)
+                )
+                await session.execute(update(DbEvent).where(DbEvent.user_id == secondary.id).values(user_id=primary.id))
+                await session.execute(
+                    update(DbEvent).where(DbEvent.creator_user_id == secondary.id).values(creator_user_id=primary.id)
+                )
+                await session.execute(
+                    update(EventParticipant)
+                    .where(EventParticipant.participant_user_id == secondary.id)
+                    .values(participant_user_id=primary.id)
+                )
 
                 await session.execute(delete(DB_User).where(DB_User.id == secondary.id))
                 await session.commit()
@@ -286,6 +334,26 @@ class DBController:
                 .where(EventParticipant.participant_max_id == max_id, EventParticipant.participant_tg_id.is_(None))
                 .values(participant_tg_id=tg_id)
             )
+            primary_user = (await session.execute(select(DB_User).where(DB_User.tg_id == tg_id))).scalar_one_or_none()
+            if primary_user:
+                await session.execute(
+                    update(DbEvent)
+                    .where(DbEvent.user_id.is_(None), or_(DbEvent.tg_id == tg_id, DbEvent.max_id == max_id))
+                    .values(user_id=primary_user.id)
+                )
+                await session.execute(
+                    update(DbEvent)
+                    .where(DbEvent.creator_user_id.is_(None), or_(DbEvent.creator_tg_id == tg_id, DbEvent.creator_max_id == max_id))
+                    .values(creator_user_id=primary_user.id)
+                )
+                await session.execute(
+                    update(EventParticipant)
+                    .where(
+                        EventParticipant.participant_user_id.is_(None),
+                        or_(EventParticipant.participant_tg_id == tg_id, EventParticipant.participant_max_id == max_id),
+                    )
+                    .values(participant_user_id=primary_user.id)
+                )
             await session.commit()
 
         return True, "Связь подтверждена."
@@ -314,6 +382,48 @@ class DBController:
         return names
 
     @staticmethod
+    async def get_notes(user_id: int) -> list[DbNote]:
+        async with AsyncSessionLocal() as session:
+            query = select(DbNote).where(DbNote.user_id == user_id).order_by(DbNote.updated_at.desc(), DbNote.id.desc())
+            return list((await session.execute(query)).scalars().all())
+
+    @staticmethod
+    async def get_note_by_id(note_id: int, user_id: int) -> DbNote | None:
+        async with AsyncSessionLocal() as session:
+            query = select(DbNote).where(DbNote.id == int(note_id), DbNote.user_id == user_id)
+            return (await session.execute(query)).scalar_one_or_none()
+
+    @staticmethod
+    async def create_note(user_id: int, note_text: str) -> DbNote:
+        note = DbNote(user_id=user_id, note_text=note_text)
+        async with AsyncSessionLocal() as session:
+            session.add(note)
+            await session.commit()
+            await session.refresh(note)
+        return note
+
+    @staticmethod
+    async def update_note(note_id: int, user_id: int, note_text: str) -> DbNote | None:
+        async with AsyncSessionLocal() as session:
+            query = (
+                update(DbNote)
+                .where(DbNote.id == int(note_id), DbNote.user_id == user_id)
+                .values(note_text=note_text, updated_at=func.now())
+                .returning(DbNote)
+            )
+            note = (await session.execute(query)).scalar_one_or_none()
+            await session.commit()
+            return note
+
+    @staticmethod
+    async def delete_note(note_id: int, user_id: int) -> bool:
+        async with AsyncSessionLocal() as session:
+            query = delete(DbNote).where(DbNote.id == int(note_id), DbNote.user_id == user_id)
+            result = await session.execute(query)
+            await session.commit()
+            return bool(result.rowcount)
+
+    @staticmethod
     async def get_participants(tg_id: int, include_inactive: bool = False, platform: str | None = None) -> dict[int, str] | None:
         async with AsyncSessionLocal() as session:
             db_user_alias = aliased(DB_User)
@@ -334,7 +444,11 @@ class DBController:
             return {getattr(item, user_attr): item.first_name for item in participants}
 
     @staticmethod
-    async def get_participants_with_status(tg_id: int, include_inactive: bool = True, platform: str | None = None) -> dict[int, tuple[str, bool]]:
+    async def get_participants_with_status(
+        tg_id: int,
+        include_inactive: bool = True,
+        platform: str | None = None,
+    ) -> dict[int, tuple[str, bool]]:
         async with AsyncSessionLocal() as session:
             db_user_alias = aliased(DB_User)
             user_col = DBController._user_id_column(platform)
@@ -358,18 +472,43 @@ class DBController:
         async with AsyncSessionLocal() as session:
             participant_col = DBController._participant_id_column(platform)
             query = select(participant_col).where(EventParticipant.event_id == int(event_id))
-            return list((await session.execute(query)).scalars().all())
+            participant_user_ids = [int(item) for item in (await session.execute(query)).scalars().all() if item is not None]
+            external_map = await DBController._resolve_external_ids_by_user_row(participant_user_ids, platform, session)
+            return [external_map[item] for item in participant_user_ids if item in external_map]
 
     @staticmethod
     async def set_event_participants(event_id: int, participant_ids: list[int], platform: str | None = None) -> None:
         async with AsyncSessionLocal() as session:
             await session.execute(delete(EventParticipant).where(EventParticipant.event_id == int(event_id)))
             if participant_ids:
-                participant_col = DBController._participant_id_column(platform).key
+                user_col = DBController._user_id_column(platform)
+                normalized_ids = [int(item) for item in participant_ids]
+                existing_users = (
+                    await session.execute(select(DB_User).where(user_col.in_(normalized_ids)))
+                ).scalars().all()
+                row_by_external = {int(getattr(user, user_col.key)): int(user.id) for user in existing_users if getattr(user, user_col.key)}
+                missing = [item for item in normalized_ids if item not in row_by_external]
+                if missing:
+                    for external_id in missing:
+                        session.add(DB_User(**{user_col.key: int(external_id)}))
+                    await session.flush()
+                    new_users = (
+                        await session.execute(select(DB_User).where(user_col.in_(missing)))
+                    ).scalars().all()
+                    for user in new_users:
+                        ext = getattr(user, user_col.key)
+                        if ext is not None:
+                            row_by_external[int(ext)] = int(user.id)
                 session.add_all(
                     [
-                        EventParticipant(event_id=int(event_id), **{participant_col: int(participant_id)})
+                        EventParticipant(
+                            event_id=int(event_id),
+                            participant_user_id=row_by_external[int(participant_id)],
+                            participant_tg_id=int(participant_id) if platform != "max" else None,
+                            participant_max_id=int(participant_id) if platform == "max" else None,
+                        )
                         for participant_id in participant_ids
+                        if int(participant_id) in row_by_external
                     ]
                 )
             await session.commit()
@@ -381,7 +520,6 @@ class DBController:
 
         async with AsyncSessionLocal() as session:
             user_col = DBController._user_id_column(platform)
-            user_attr = user_col.key
             current_user = (await session.execute(select(DB_User).where(user_col == current_tg_id))).scalar_one_or_none()
             if not current_user:
                 return 0
@@ -413,6 +551,9 @@ class DBController:
             stop_datetime_tz = datetime.combine(event.event_date, event.stop_time).replace(tzinfo=user_tz).astimezone(timezone.utc)
 
         async with AsyncSessionLocal() as session:
+            owner_user: DB_User | None = None
+            creator_user: DB_User | None = None
+
             if event.max_id and (event.tg_id is None or event.creator_tg_id is None):
                 user = (await session.execute(select(DB_User).where(DB_User.max_id == event.max_id))).scalar_one_or_none()
                 if user and user.tg_id:
@@ -420,6 +561,7 @@ class DBController:
                         event.tg_id = user.tg_id
                     if event.creator_tg_id is None:
                         event.creator_tg_id = user.tg_id
+                owner_user = user or owner_user
             if event.tg_id and (event.max_id is None or event.creator_max_id is None):
                 user = (await session.execute(select(DB_User).where(DB_User.tg_id == event.tg_id))).scalar_one_or_none()
                 if user and user.max_id:
@@ -427,6 +569,34 @@ class DBController:
                         event.max_id = user.max_id
                     if event.creator_max_id is None:
                         event.creator_max_id = user.max_id
+                owner_user = user or owner_user
+
+            if owner_user is None and event.tg_id is not None:
+                owner_user = (await session.execute(select(DB_User).where(DB_User.tg_id == event.tg_id))).scalar_one_or_none()
+            if owner_user is None and event.max_id is not None:
+                owner_user = (await session.execute(select(DB_User).where(DB_User.max_id == event.max_id))).scalar_one_or_none()
+
+            if owner_user is None:
+                owner_kwargs: dict = {}
+                if event.tg_id is not None:
+                    owner_kwargs["tg_id"] = int(event.tg_id)
+                if event.max_id is not None:
+                    owner_kwargs["max_id"] = int(event.max_id)
+                if owner_kwargs:
+                    owner_user = DB_User(**owner_kwargs)
+                    session.add(owner_user)
+                    await session.flush()
+
+            if event.creator_tg_id is not None:
+                creator_user = (
+                    await session.execute(select(DB_User).where(DB_User.tg_id == int(event.creator_tg_id)))
+                ).scalar_one_or_none()
+            if creator_user is None and event.creator_max_id is not None:
+                creator_user = (
+                    await session.execute(select(DB_User).where(DB_User.max_id == int(event.creator_max_id)))
+                ).scalar_one_or_none()
+            if creator_user is None:
+                creator_user = owner_user
 
             creator_tg_id = event.creator_tg_id if event.creator_tg_id is not None else event.tg_id
             creator_max_id = event.creator_max_id if event.creator_max_id is not None else event.max_id
@@ -444,6 +614,8 @@ class DBController:
                 max_id=event.max_id,
                 creator_tg_id=creator_tg_id,
                 creator_max_id=creator_max_id,
+                user_id=owner_user.id if owner_user else None,
+                creator_user_id=creator_user.id if creator_user else None,
                 start_at=start_datetime_tz,
                 stop_at=stop_datetime_tz,
             )
@@ -488,6 +660,12 @@ class DBController:
             db_event = (await session.execute(query)).scalar_one_or_none()
             if not db_event:
                 return None
+            owner_user = None
+            creator_user = None
+            if db_event.user_id is not None:
+                owner_user = (await session.execute(select(DB_User).where(DB_User.id == db_event.user_id))).scalar_one_or_none()
+            if db_event.creator_user_id is not None:
+                creator_user = (await session.execute(select(DB_User).where(DB_User.id == db_event.creator_user_id))).scalar_one_or_none()
 
         start_local = db_event.start_at.astimezone(user_tz)
         stop_local_time = db_event.stop_at.astimezone(user_tz).time() if db_event.stop_at else None
@@ -503,6 +681,11 @@ class DBController:
         else:
             recurrent = Recurrent.never
 
+        owner_tg_id = db_event.tg_id or (owner_user.tg_id if owner_user else None)
+        owner_max_id = db_event.max_id or (owner_user.max_id if owner_user else None)
+        creator_tg_id = db_event.creator_tg_id or (creator_user.tg_id if creator_user else owner_tg_id)
+        creator_max_id = db_event.creator_max_id or (creator_user.max_id if creator_user else owner_max_id)
+
         return Event(
             event_date=start_local.date(),
             description=db_event.description,
@@ -510,10 +693,10 @@ class DBController:
             start_time=start_local.time(),
             stop_time=stop_local_time,
             recurrent=recurrent,
-            tg_id=db_event.tg_id,
-            creator_tg_id=db_event.creator_tg_id or db_event.tg_id,
-            max_id=db_event.max_id,
-            creator_max_id=db_event.creator_max_id or db_event.max_id,
+            tg_id=owner_tg_id,
+            creator_tg_id=creator_tg_id,
+            max_id=owner_max_id,
+            creator_max_id=creator_max_id,
         )
 
     @staticmethod
@@ -566,8 +749,13 @@ class DBController:
 
         event_user_col = self._event_user_column(platform)
         async with AsyncSessionLocal() as session:
+            user_row_id = await self._resolve_user_row_id_by_external(user_id, platform, session)
+            if user_row_id is None:
+                empty = {day: 0 for day in range(1, num_days + 1)}
+                empty[0] = []
+                return empty
             query = select(DbEvent).where(
-                event_user_col == user_id,
+                event_user_col == user_row_id,
                 DbEvent.start_at <= month_end_utc,
                 or_(
                     and_(
@@ -671,8 +859,11 @@ class DBController:
 
         event_user_col = DBController._event_user_column(platform)
         async with AsyncSessionLocal() as session:
+            user_row_id = await DBController._resolve_user_row_id_by_external(user_id, platform, session)
+            if user_row_id is None:
+                return [] if deleted else ""
             query = select(DbEvent).where(
-                event_user_col == user_id,
+                event_user_col == user_row_id,
                 DbEvent.start_at <= day_end_utc,
                 or_(
                     and_(
@@ -756,8 +947,11 @@ class DBController:
     @staticmethod
     async def delete_all_events_by_user(user_id: int, platform: str | None = None) -> None:
         event_user_col = DBController._event_user_column(platform)
-        query = delete(DbEvent).where(event_user_col == user_id)
         async with AsyncSessionLocal() as session:
+            user_row_id = await DBController._resolve_user_row_id_by_external(user_id, platform, session)
+            if user_row_id is None:
+                return
+            query = delete(DbEvent).where(event_user_col == user_row_id)
             await session.execute(query)
             await session.commit()
 
@@ -790,10 +984,13 @@ class DBController:
 
         event_user_col = self._event_user_column(platform)
         async with AsyncSessionLocal() as session:
+            user_row_id = await self._resolve_user_row_id_by_external(user_id, platform, session)
+            if user_row_id is None:
+                return []
             query = (
                 select(DbEvent)
                 .where(
-                    event_user_col == user_id,
+                    event_user_col == user_row_id,
                     DbEvent.start_at <= stop_dt_utc,
                     or_(
                         and_(DbEvent.single_event.is_(True), DbEvent.start_at.between(start_dt_utc, stop_dt_utc)),
@@ -916,30 +1113,39 @@ class DBController:
 
         result = (await session.execute(query)).scalars().all()
 
-        user_ids = [getattr(event, event_user_col.key) for event in result]
+        user_ids = [int(getattr(event, event_user_col.key)) for event in result if getattr(event, event_user_col.key) is not None]
         user_col = DBController._user_id_column(platform)
-        users_query = select(DB_User).where(user_col.in_(user_ids))
+        users_query = select(DB_User).where(DB_User.id.in_(user_ids))
         users = (await session.execute(users_query)).scalars().all()
 
-        users_dict = {}
+        users_dict: dict[int, timedelta] = {}
+        external_ids: dict[int, int] = {}
 
         dt_aware_default = datetime.now(ZoneInfo(config.DEFAULT_TIMEZONE_NAME)).utcoffset()
 
         for _user in users:
             tz = ZoneInfo(_user.time_zone) if _user.time_zone else ZoneInfo(config.DEFAULT_TIMEZONE_NAME)
             dt_aware = datetime.now(tz)
-
-            users_dict[getattr(_user, user_col.key)] = dt_aware.utcoffset()
+            users_dict[int(_user.id)] = dt_aware.utcoffset()
+            external_id = getattr(_user, user_col.key)
+            if external_id is not None:
+                external_ids[int(_user.id)] = int(external_id)
 
         for event in result:
             if event_dt.date() in [_ev.cancel_date for _ev in event.canceled_events]:
+                continue
+            owner_row_id = getattr(event, event_user_col.key)
+            if owner_row_id is None:
+                continue
+            owner_external_id = external_ids.get(int(owner_row_id))
+            if owner_external_id is None:
                 continue
 
             event_list.append(
                 {
                     "event_id": event.id,
-                    "tg_id": getattr(event, event_user_col.key),
-                    "start_time": (event.start_at + users_dict.get(getattr(event, event_user_col.key), dt_aware_default)).time(),
+                    "tg_id": owner_external_id,
+                    "start_time": (event.start_at + users_dict.get(int(owner_row_id), dt_aware_default)).time(),
                     "description": event.description,
                 }
             )
@@ -957,7 +1163,16 @@ class DBController:
 
             creator_tg_id = event.creator_tg_id or event.tg_id
             creator_max_id = event.creator_max_id or event.max_id
-            event_user_col = DBController._event_user_column(platform).key
+            participant_user_row = await DBController._resolve_user_row_id_by_external(user_id, platform, session)
+            if participant_user_row is None:
+                user_col = DBController._user_id_column(platform).key
+                new_user = DB_User(**{user_col: int(user_id)})
+                session.add(new_user)
+                await session.flush()
+                participant_user_row = int(new_user.id)
+            participant_user = (
+                await session.execute(select(DB_User).where(DB_User.id == participant_user_row))
+            ).scalar_one_or_none()
             new_event = DbEvent(
                 description=event.description,
                 emoji=event.emoji,
@@ -970,12 +1185,13 @@ class DBController:
                 monthly=event.monthly,
                 annual_day=event.annual_day,
                 annual_month=event.annual_month,
-                tg_id=event.tg_id,
-                max_id=event.max_id,
+                tg_id=participant_user.tg_id if participant_user else event.tg_id,
+                max_id=participant_user.max_id if participant_user else event.max_id,
                 creator_tg_id=creator_tg_id,
                 creator_max_id=creator_max_id,
+                user_id=participant_user_row,
+                creator_user_id=event.creator_user_id or event.user_id,
             )
-            setattr(new_event, event_user_col, user_id)
 
             session.add(new_event)
             await session.commit()
@@ -1009,6 +1225,8 @@ class DBController:
                 max_id=event.max_id,
                 creator_tg_id=event.creator_tg_id or event.tg_id,
                 creator_max_id=event.creator_max_id or event.max_id,
+                user_id=event.user_id,
+                creator_user_id=event.creator_user_id or event.user_id,
             )
 
             session.add(new_event)

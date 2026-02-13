@@ -71,3 +71,14 @@ Maps user-to-user contact relations for participant selection.
 Columns:
 - `user_id` int FK -> `tg_users.id`
 - `related_user_id` int FK -> `tg_users.id`
+
+## public.tg_note
+
+User notes table.
+
+Important columns:
+- `id` int PK
+- `user_id` int FK -> `tg_users.id`
+- `note_text` text not null
+- `created_at` timestamptz
+- `updated_at` timestamptz

@@ -1,20 +1,17 @@
+.idea/
 
-# local runtime
-.env
-.venv/
-venv/
 __pycache__/
-bot.db
-*.pyc
-*.pyo
-*.pyd
-*.jpg
-*.jpeg
-*.png
-*.webp
-*.mp3
-*.ogg
-*.wav
+venv/
+.pytest_cache
+.env
+*.db
 
-api/node_modules/
-web/node_modules/
+.vscode/
+docker/pg
+/local.env
+/.coverage
+/htmlcov/
+/localreadme.md
+/env/local/docker/docker-compose-test.yml
+/env/local/docker/docker-compose.override.yml
+/env/local/docker/local.env

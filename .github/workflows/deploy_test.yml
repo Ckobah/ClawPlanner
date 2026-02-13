@@ -1,0 +1,24 @@
+name: Deploy to TEST Server
+
+on:
+  push:
+    branches: [ "Vitaly" ]
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.TEST_SSH_HOST }}
+          username: ${{ secrets.TEST_SSH_USERNAME }}
+          password: ${{ secrets.TEST_SSH_PASSWORD }}
+          port: ${{ secrets.TEST_SSH_PORT }}
+          script: |
+            cd /home/tg_bot
+            git pull
+            sudo systemctl restart tg_bot
+            sudo systemctl restart tg_max_bot

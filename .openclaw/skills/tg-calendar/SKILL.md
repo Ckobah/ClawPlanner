@@ -1,6 +1,6 @@
 ---
 name: tg-calendar
-description: Use the ClawPlanner Postgres/Supabase database directly to create, read, update, reschedule, and delete calendar events and participants with bot-compatible semantics (UTC storage, user timezone, recurrence, tg/max IDs). Trigger when user asks about calendar/events/reminders/participants, OR sends/forwards text where date/time/description can be inferred (treat as create-event intent). If date is present but time is missing, propose a reasonable default time and ask confirmation. Also use when user asks to fetch timezone/language/name from tg_users, summarize useful info from existing events/notes-like descriptions, or debug reminder mismatch.
+description: Use the ClawPlanner Postgres/Supabase database directly to create, read, update, reschedule, and delete calendar events, participants, and user notes with bot-compatible semantics (UTC storage, user timezone, recurrence, tg/max IDs, user_id links). Trigger when user asks about calendar/events/reminders/participants/notes, OR sends/forwards text where date/time/description can be inferred (treat as create-event intent). If date is present but time is missing, propose a reasonable default time and ask confirmation. Also use when user asks to fetch timezone/language/name from tg_users, summarize useful info from existing events/notes, or debug reminder mismatch.
 ---
 
 # tg-calendar
@@ -52,13 +52,22 @@ Operate the existing planner DB used by ClawPlanner.
 - Delete single non-recurrent events directly.
 - For recurrent events, support canceling one occurrence when asked.
 
+## Notes expectations
+
+- Support notes CRUD via `tg_note` table through bot semantics:
+  - list notes, open note, create note, edit note, delete note
+- Resolve note owner by user row id (not external tg/max id) using DB controller helpers.
+- Keep note text validation consistent with bot limits/behavior.
+
 ## Required code references
 
 - `database/db_controller.py` (source of truth for semantics)
-- `handlers/events.py` (UI flow and intent mapping)
+- `handlers/events.py` (event UI flow and intent mapping)
+- `handlers/notes.py` (notes UI flow and state machine)
 - `cron_handler.py` (reminder selection)
 - `database/models/user_model.py`
 - `database/models/event_models.py`
+- `database/models/note_model.py`
 
 ## References
 
