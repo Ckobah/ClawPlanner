@@ -1,6 +1,8 @@
 import datetime
 import logging
+import re
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
@@ -16,7 +18,9 @@ from telegram.ext import (
 
 # ggg
 from config import MULTI_USER_MODE, SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from database.db_controller import db_controller
 from database.session import engine
+from entities import Event
 from handlers.cal import handle_calendar_callback, show_calendar
 from handlers.contacts import handle_contact, handle_team_callback, handle_team_command
 from handlers.events import (
@@ -120,6 +124,62 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Skip expired callback query")
             return
     logger.exception("Unhandled error", exc_info=context.error)
+
+
+async def _try_quick_create_event_from_text(update: Update, locale: str | None = None) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    text = (update.message.text or "").strip()
+    low = text.lower()
+
+    intent_markers = ["создай", "создать", "добавь", "добавить", "запланируй", "поставь"]
+    if not any(m in low for m in intent_markers):
+        return False
+
+    if "завтра" not in low:
+        return False
+
+    m = re.search(r"(?:\bв\s*)?([01]?\d|2[0-3])[:\.]([0-5]\d)\b", low)
+    if not m:
+        return False
+
+    hours = int(m.group(1))
+    minutes = int(m.group(2))
+
+    desc = text
+    for marker in ["по поводу", "насчет", "на тему", "о "]:
+        pos = low.find(marker)
+        if pos >= 0:
+            desc = text[pos + len(marker):].strip(" .,!?:;-")
+            break
+
+    if not desc:
+        desc = "Встреча"
+
+    user_id = update.effective_chat.id
+    user = await db_controller.get_user(user_id, platform="tg")
+    tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
+
+    today = datetime.datetime.now(ZoneInfo(tz_name)).date()
+    event_date = today + datetime.timedelta(days=1)
+
+    event = Event(
+        event_date=event_date,
+        description=desc,
+        start_time=datetime.time(hours, minutes),
+        tg_id=user_id,
+        creator_tg_id=user_id,
+    )
+    event_id = await db_controller.save_event(event=event, tz_name=tz_name)
+    if not event_id:
+        await update.message.reply_text(tr("Не получилось создать событие. Попробуйте через календарь.", locale))
+        return True
+
+    await update.message.reply_text(
+        tr("Готово ✅ Создал событие на завтра в {time}: {desc}", locale).format(time=f"{hours:02d}:{minutes:02d}", desc=desc)
+    )
+    return True
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -278,6 +338,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 logger.exception("Failed to delete description prompt message")
 
         return
+
+    if await _try_quick_create_event_from_text(update, locale):
+        return
+
     await update.message.reply_text(tr("Используйте кнопки для навигации.", locale))
 
 
