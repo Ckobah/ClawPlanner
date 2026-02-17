@@ -299,6 +299,61 @@ async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
     return parsed
 
 
+def _extract_ticket_event_hint(text: str, user_tz: str) -> list[ParsedEvent]:
+    low = text.lower()
+    ticket_markers = ["билет", "партер", "ряд", "место", "клуб", "ticket", "seat", "row"]
+    if not any(m in low for m in ticket_markers):
+        return []
+
+    tz = ZoneInfo(user_tz)
+    base_date = datetime.datetime.now(tz).date()
+
+    # try to find event-like date with month words + time
+    ru_month_regex = r"(январ[яь]|феврал[яь]|март[а]?|апрел[яь]|мая|июн[яь]|июл[яь]|август[а]?|сентябр[яь]|октябр[яь]|ноябр[яь]|декабр[яь])"
+    m = re.search(rf"\b(\d{{1,2}})\s+{ru_month_regex}\s+([01]?\d|2[0-3])[:\.]([0-5]\d)\b", low)
+    if not m:
+        return []
+
+    day = int(m.group(1))
+    mon_word = m.group(2)
+    month = next((v for k, v in RU_MONTHS.items() if mon_word.startswith(k)), None)
+    if not month:
+        return []
+
+    hour = int(m.group(3))
+    minute = int(m.group(4))
+
+    year = base_date.year
+    event_date = datetime.date(year, month, day)
+    # allow near-past tickets (up to 30 days) to avoid wrong year rollover
+    if event_date < base_date - datetime.timedelta(days=30):
+        event_date = datetime.date(year + 1, month, day)
+
+    # venue/address extraction
+    venue = ""
+    m_venue = re.search(r"(клуб[^;\n]+)", text, flags=re.IGNORECASE)
+    if m_venue:
+        venue = m_venue.group(1).strip()
+    m_addr = re.search(r"(москва[^\n]+)", text, flags=re.IGNORECASE)
+    addr = m_addr.group(1).strip() if m_addr else ""
+
+    desc = "Мероприятие по билету"
+    if venue:
+        desc = venue
+    if addr:
+        desc = f"{desc} | {addr}"
+
+    return [
+        ParsedEvent(
+            event_date=event_date,
+            start_time=datetime.time(hour, minute),
+            stop_time=None,
+            description=desc,
+            recurrent=Recurrent.never,
+        )
+    ]
+
+
 def _extract_json_array(raw: str) -> list[dict]:
     if not raw:
         return []
@@ -420,9 +475,21 @@ async def _process_extracted_text(update: Update, text: str) -> bool:
     user = await db_controller.get_user(update.effective_chat.id, platform="tg")
     tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
 
-    parsed_events = await _extract_events_with_openclaw(text, user_tz=tz_name, locale=locale)
+    parsed_events = _extract_ticket_event_hint(text, user_tz=tz_name)
+    if not parsed_events:
+        parsed_events = await _extract_events_with_openclaw(text, user_tz=tz_name, locale=locale)
     if not parsed_events:
         parsed_events = await parse_events_from_text(text, user_tz=tz_name)
+
+    # sanity filter: remove obvious garbage/duplicates
+    unique = {}
+    for ev in parsed_events:
+        if not ev.description or ev.description.isdigit():
+            continue
+        key = (ev.event_date.isoformat(), ev.start_time.strftime("%H:%M"), ev.description.strip().lower())
+        unique[key] = ev
+    parsed_events = list(unique.values())
+
     if not parsed_events:
         await update.message.reply_text(
             tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
