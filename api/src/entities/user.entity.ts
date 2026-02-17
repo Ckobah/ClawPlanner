@@ -34,6 +34,9 @@ export class User {
   @Column({ type: 'varchar', name: 'time_zone', nullable: true })
   timeZone?: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  city?: string | null;
+
   @Column({ type: 'varchar', name: 'language_code', nullable: true })
   languageCode?: string | null;
 

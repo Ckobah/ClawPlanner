@@ -11,6 +11,7 @@ import config
 from database.db_controller import db_controller
 from entities import TgUser
 from i18n import format_localized_date, month_year_label, resolve_user_locale, tr, weekday_labels
+from weather import timezone_to_city, weather_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ async def generate_calendar(
     month: int,
     tz_name: str = config.DEFAULT_TIMEZONE_NAME,
     locale: str | None = None,
+    city: str | None = None,
 ) -> InlineKeyboardMarkup:
     event_dict = await db_controller.get_current_month_events_by_user(user_id=user_id, month=month, year=year, tz_name=tz_name)
 
@@ -34,7 +36,6 @@ async def generate_calendar(
     header = month_year_label(year=year, month=month, locale=locale)
 
     keyboard = []
-
     prev_month = month - 1 if month > 1 else 12
     prev_year = year if month > 1 else year - 1
     next_month = month + 1 if month < 12 else 1
@@ -70,6 +71,26 @@ async def generate_calendar(
         keyboard.append(week)
 
     return InlineKeyboardMarkup(keyboard)
+
+
+async def build_calendar_message_text(
+    user_id: int,
+    tz_name: str,
+    locale: str | None = None,
+    city: str | None = None,
+) -> str:
+    user_tz = tz_name or config.DEFAULT_TIMEZONE_NAME
+    today_local = datetime.now(tz=ZoneInfo(user_tz))
+    city_for_weather = city or timezone_to_city(user_tz) or "-"
+    weather = await weather_service.get_weather_for_city(user_id=user_id, city=city_for_weather, platform="tg")
+    weather_text = f"{weather.temperature_text} {weather.emoji}" if weather else tr("Нет данных ❔", locale)
+    today_text = f"{today_local.day:02d}.{today_local.month:02d}.{today_local.year}"
+    return (
+        f'{tr("Сегодня:", locale)} {today_text}\n'
+        f'{tr("Город:", locale)} {city_for_weather}\n'
+        f'{tr("Погода:", locale)} {weather_text}\n\n'
+        f'{tr("📅 Выберите дату события:", locale)}'
+    )
 
 
 async def generate_week_calendar(
@@ -145,7 +166,14 @@ async def show_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     tz_name = db_user.time_zone if db_user.time_zone else config.DEFAULT_TIMEZONE_NAME
     today = datetime.now(tz=ZoneInfo(tz_name))
 
-    reply_markup = await generate_calendar(year=today.year, month=today.month, user_id=user.id, tz_name=db_user.time_zone, locale=locale)
+    reply_markup = await generate_calendar(
+        year=today.year,
+        month=today.month,
+        user_id=user.id,
+        tz_name=db_user.time_zone,
+        locale=locale,
+        city=db_user.city,
+    )
 
     keyboard = list(reply_markup.inline_keyboard)
     keyboard.append(
@@ -159,11 +187,8 @@ async def show_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        tr("📅 Выберите дату события:", locale),
-        reply_markup=reply_markup,
-        parse_mode="HTML",
-    )
+    text = await build_calendar_message_text(user_id=user.id, tz_name=tz_name, locale=locale, city=db_user.city)
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 async def build_day_view(
@@ -229,8 +254,16 @@ async def handle_calendar_callback(update: Update, context: ContextTypes.DEFAULT
         month = int(month_str)
 
         # Генерируем новый календарь
-        reply_markup = await generate_calendar(year=year, month=month, user_id=user.id, tz_name=db_user.time_zone, locale=locale)
-        await query.edit_message_text(tr("📅 Выберите дату события:", locale), reply_markup=reply_markup)
+        reply_markup = await generate_calendar(
+            year=year,
+            month=month,
+            user_id=user.id,
+            tz_name=db_user.time_zone,
+            locale=locale,
+            city=db_user.city,
+        )
+        text = await build_calendar_message_text(user_id=user.id, tz_name=db_user.time_zone, locale=locale, city=db_user.city)
+        await query.edit_message_text(text, reply_markup=reply_markup)
 
     elif data.startswith("cal_week_nav_"):
         parts = data.split("_")
@@ -246,15 +279,24 @@ async def handle_calendar_callback(update: Update, context: ContextTypes.DEFAULT
             tz_name=db_user.time_zone,
             locale=locale,
         )
-        await query.edit_message_text(tr("📅 Выберите дату события:", locale), reply_markup=reply_markup)
+        text = await build_calendar_message_text(user_id=user.id, tz_name=db_user.time_zone, locale=locale, city=db_user.city)
+        await query.edit_message_text(text, reply_markup=reply_markup)
 
     elif data.startswith("cal_month_"):
         _, _, year_str, month_str = data.split("_")
         year = int(year_str)
         month = int(month_str)
 
-        reply_markup = await generate_calendar(year=year, month=month, user_id=user.id, tz_name=db_user.time_zone, locale=locale)
-        await query.edit_message_text(tr("📅 Выберите дату события:", locale), reply_markup=reply_markup)
+        reply_markup = await generate_calendar(
+            year=year,
+            month=month,
+            user_id=user.id,
+            tz_name=db_user.time_zone,
+            locale=locale,
+            city=db_user.city,
+        )
+        text = await build_calendar_message_text(user_id=user.id, tz_name=db_user.time_zone, locale=locale, city=db_user.city)
+        await query.edit_message_text(text, reply_markup=reply_markup)
 
     elif data.startswith("cal_select_"):
         logger.info("Выбор события cal_select_")

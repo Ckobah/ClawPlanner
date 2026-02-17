@@ -111,6 +111,27 @@ async def test_delete_event_by_id_returns_tuple(db_session_fixture):
 
 
 @pytest.mark.asyncio
+async def test_reschedule_event_keeps_emoji(db_session_fixture):
+    event_date = datetime.date.today()
+    event = Event(
+        event_date=event_date,
+        description="Emoji keep",
+        emoji="🎉",
+        start_time=datetime.time(10, 0),
+        tg_id=1,
+        recurrent=Recurrent.never,
+    )
+    event_id = await db_controller.save_event(event)
+
+    new_event_id = await db_controller.reschedule_event(event_id=event_id, shift_hours=1)
+    assert new_event_id is not None
+
+    moved = await db_controller.get_event_by_id(event_id=new_event_id)
+    assert moved is not None
+    assert moved.emoji == "🎉"
+
+
+@pytest.mark.asyncio
 async def test_get_nearest_events_contains_single_event(db_session_fixture):
     user_tz = timezone(timedelta(hours=DEFAULT_TIMEZONE))
     now = datetime.datetime.now(user_tz)

@@ -35,7 +35,7 @@ from handlers.events import (
 )
 from handlers.link import handle_link_callback
 from handlers.notes import handle_note_callback, handle_note_text_input, show_notes
-from handlers.start import handle_help, handle_language, handle_location, handle_skip, show_main_menu_keyboard, start
+from handlers.start import handle_help, handle_language, handle_location, handle_skip, start
 from i18n import resolve_user_locale, tr, translate_markup
 
 load_dotenv(".env")
@@ -197,7 +197,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(tr("Готово.", locale), reply_markup=reply_markup)
 
         if update.message:
-            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,
@@ -261,7 +260,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         context.chat_data.pop("await_event_description", None)
 
         if update.message:
-            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,

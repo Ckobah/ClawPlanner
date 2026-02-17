@@ -71,6 +71,7 @@ class TgUser(BaseModel):
     last_name: str | None = None
     language_code: str | None = None
     time_zone: str | None = None
+    city: str | None = None
     title: str | None = None
 
     @model_validator(mode="after")
@@ -91,6 +92,7 @@ class MaxUser(BaseModel):
     last_name: str | None = None
     language_code: str | None = None
     time_zone: str | None = None
+    city: str | None = None
     title: str | None = None
 
     @model_validator(mode="after")

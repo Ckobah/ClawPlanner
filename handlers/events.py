@@ -1,6 +1,7 @@
 import datetime
 import logging
 from datetime import date, time
+from zoneinfo import ZoneInfo
 
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -120,6 +121,41 @@ def build_emoji_keyboard(locale: str | None = None) -> InlineKeyboardMarkup:
 
 def format_description(description: str | None, locale: str | None = None) -> str:
     return description or tr("Описание *", locale)
+
+
+def _format_upcoming_day_label(event_day: date, locale: str | None = None) -> str:
+    label = format_localized_date(event_day, locale=locale, fmt="d MMMM y")
+    if (locale or "").startswith("ru"):
+        return f"{label} г."
+    return label
+
+
+def _build_upcoming_events_text(events: list[dict], locale: str | None = None) -> str:
+    if not events:
+        return tr("Ближайшие события не найдены", locale)
+
+    lines = [tr("Ближайшие события:", locale)]
+    grouped: dict[date, list[str]] = {}
+    ordered_days: list[date] = []
+
+    for item in events:
+        event_dt = list(item.keys())[0]
+        value = list(item.values())[0]
+        description = value[0] if isinstance(value, tuple) else value
+        emoji = value[1] if isinstance(value, tuple) else None
+        day = event_dt.date()
+        if day not in grouped:
+            grouped[day] = []
+            ordered_days.append(day)
+        emoji_part = f"{emoji} " if emoji else ""
+        grouped[day].append(f"{emoji_part}{event_dt.strftime('%H:%M')} - {description}")
+
+    for event_day in ordered_days:
+        lines.append("")
+        lines.append(f"<b>{_format_upcoming_day_label(event_day, locale)}</b>")
+        lines.extend(grouped[event_day])
+
+    return "\n".join(lines)
 
 
 
@@ -783,23 +819,19 @@ async def show_upcoming_events(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"*** DB user: {db_user}")
 
     events = await db_controller.get_nearest_events(user_id=user.id, tz_name=db_user.time_zone)
+    reply_markup = None
 
     if events:
-        list_events = [tr("Ближайшие события:", locale)]
-        for _event in events:
-            event_dt = list(_event.keys())[0]
-            value = list(_event.values())[0]
-            description = value[0] if isinstance(value, tuple) else value
-            emoji = value[1] if isinstance(value, tuple) else None
-            date_part = event_dt.strftime('%d-%m-%Y')
-            time_part = event_dt.strftime('%H:%M')
-            emoji_part = f" {emoji}" if emoji else ""
-            list_events.append(f"<b>{date_part}{emoji_part} {time_part}</b> - {description}")
-        text = "\n".join(list_events)
+        text = _build_upcoming_events_text(events, locale)
     else:
         text = tr("Ближайшие события не найдены", locale)
+        today = datetime.datetime.now(ZoneInfo(db_user.time_zone)).date()
+        create_text = tr("✍️ Создать событие на {date}", locale).format(date=today.strftime("%d.%m.%Y"))
+        reply_markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(create_text, callback_data=f"create_event_begin_{today.year}_{today.month}_{today.day}")]]
+        )
 
-    await update.message.reply_text(text, parse_mode="HTML")
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 async def handle_delete_event_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

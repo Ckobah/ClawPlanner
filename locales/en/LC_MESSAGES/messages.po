@@ -130,6 +130,18 @@ msgstr "📅 Choose event date:"
 msgid "Выберите дату события:"
 msgstr "Choose event date:"
 
+msgid "Сегодня:"
+msgstr "Today:"
+
+msgid "Город:"
+msgstr "City:"
+
+msgid "Погода:"
+msgstr "Weather:"
+
+msgid "Нет данных ❔"
+msgstr "No data ❔"
+
 msgid "Выберите действие:"
 msgstr "Choose an action:"
 

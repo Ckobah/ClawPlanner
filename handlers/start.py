@@ -10,6 +10,7 @@ from database.db_controller import db_controller
 from entities import TgUser
 from handlers.cal import show_calendar
 from i18n import normalize_locale, resolve_user_locale, tr
+from weather import weather_service
 
 logger = logging.getLogger(__name__)
 
@@ -140,16 +141,23 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     tz_name = tf.timezone_at(lat=location.latitude, lng=location.longitude)
     logger.info(f"tz name; {tz_name}")
+    locale_hint = normalize_locale(getattr(update.effective_user, "language_code", None), default="ru")
+    city = await weather_service.resolve_city_from_coords(latitude=location.latitude, longitude=location.longitude, locale=locale_hint)
+    if city:
+        tg_user.city = city
+        logger.info("Resolved weather city for user %s: %s", user.id, city)
     try:
+        if not tz_name:
+            raise ValueError("Timezone not detected from coordinates")
         now = datetime.now(ZoneInfo(tz_name))
         offset = now.utcoffset()
 
         tg_user.time_zone = tz_name
         await db_controller.save_update_user(tg_user=tg_user)
         logger.info(f"OFFSET: {offset}, {int(offset.total_seconds()/3600)}, {type(offset)}")
-    except:  # noqa
+    except Exception:
         logger.exception("OFFSET ERR: ")
-        pass
+        await db_controller.save_update_user(tg_user=tg_user)
 
     await show_main_menu_keyboard(update.message)
     await show_calendar(update, context)

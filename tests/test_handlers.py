@@ -156,6 +156,22 @@ async def test_show_upcoming_events(db_session_fixture):
 
 
 @pytest.mark.asyncio
+async def test_show_upcoming_events_empty_has_create_button(db_session_fixture):
+    update = make_update_with_message(user_id=1)
+    data: dict = {}
+    context = type("DummyContext", (), {"user_data": data, "chat_data": data})()
+
+    await show_upcoming_events(update, context=context)
+
+    assert update.message.replies
+    reply = update.message.replies[0]
+    assert isinstance(reply["reply_markup"], InlineKeyboardMarkup)
+    buttons = [button for row in reply["reply_markup"].inline_keyboard for button in row]
+    assert any(button.text.startswith("✍️ Создать событие на ") for button in buttons)
+    assert any((button.callback_data or "").startswith("create_event_begin_") for button in buttons)
+
+
+@pytest.mark.asyncio
 async def test_team_toggle_with_string_participant_id_marks_selected():
     update = make_update_with_callback(data="team_toggle_2", user_id=1)
     data: dict = {"team_participants": {"2": "Bob"}, "team_selected": []}
@@ -230,3 +246,58 @@ async def test_handle_text_creates_note_when_waiting_state(db_session_fixture):
 
     notes = await db_controller.get_notes(user_id=user_row_id)
     assert any(note.note_text == "Новая заметка" for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_handle_text_time_input_does_not_send_menu_message(db_session_fixture):
+    from main import handle_text
+
+    class TimeInputMessage:
+        def __init__(self, text: str, chat_id: int, message_id: int):
+            self.text = text
+            self.chat_id = chat_id
+            self.message_id = message_id
+            self.replies: list[dict] = []
+
+        async def reply_text(self, text: str, reply_markup=None, parse_mode: str | None = None) -> None:
+            self.replies.append({"text": text, "reply_markup": reply_markup, "parse_mode": parse_mode})
+
+    class DummyBot:
+        def __init__(self):
+            self.markup_edits: list[dict] = []
+            self.deleted_messages: list[tuple[int, int]] = []
+
+        async def edit_message_reply_markup(self, chat_id: int, message_id: int, reply_markup=None) -> None:
+            self.markup_edits.append({"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup})
+
+        async def delete_message(self, chat_id: int, message_id: int) -> None:
+            self.deleted_messages.append((chat_id, message_id))
+
+    event_date = datetime.date.today()
+    event = Event(event_date=event_date, description="test", tg_id=1)
+
+    message = TimeInputMessage(text="9", chat_id=100, message_id=200)
+    update = make_update_with_message(message=message, user_id=1)
+
+    data: dict = {
+        "event": event,
+        "await_time_input": {
+            "field": "hour",
+            "time_type": "start",
+            "prompt_message_id": 300,
+            "prompt_chat_id": 100,
+        },
+        "time_picker_chat_id": 100,
+        "time_picker_message_id": 400,
+        "time_input_prompt_message_id": 300,
+        "time_input_prompt_chat_id": 100,
+    }
+    bot = DummyBot()
+    context = type("DummyContext", (), {"user_data": data, "chat_data": data, "bot": bot})()
+
+    await handle_text(update, context)
+
+    assert context.chat_data["event"].start_time == datetime.time(9, 0)
+    assert context.chat_data.get("await_time_input") is None
+    assert bot.markup_edits
+    assert not any(reply["text"] == "Меню:" for reply in message.replies)
