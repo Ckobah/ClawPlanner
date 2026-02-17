@@ -1,7 +1,11 @@
+import asyncio
 import datetime
+import json
 import logging
 import os
 import re
+import shlex
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +23,9 @@ from entities import Event, Recurrent
 from i18n import resolve_user_locale, tr
 
 logger = logging.getLogger(__name__)
+
+OPENCLAW_BIN = os.getenv("OPENCLAW_BIN") or shutil.which("openclaw") or "/home/clawd/.npm-global/bin/openclaw"
+AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "90"))
 
 _whisper_model = None
 _ocr_engine = None
@@ -292,6 +299,101 @@ async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
     return parsed
 
 
+def _extract_json_array(raw: str) -> list[dict]:
+    if not raw:
+        return []
+    text = raw.strip()
+    if "```" in text:
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE | re.DOTALL)
+
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+    except Exception:
+        pass
+
+    m = re.search(r"\[.*\]", text, flags=re.DOTALL)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(0))
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+    except Exception:
+        return []
+    return []
+
+
+async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | None = None) -> list[ParsedEvent]:
+    prompt = (
+        "Извлеки события из текста/афиши. Верни только JSON-массив без пояснений. "
+        "Каждый объект: date(YYYY-MM-DD), start_time(HH:MM), end_time(HH:MM|null), description, address, recurrent(one of: never,daily,weekly,monthly,annual). "
+        f"Часовой пояс пользователя: {user_tz}. "
+        "Если год не указан, выбери ближайшую будущую дату. Если это билет/афиша — постарайся правильно извлечь дату, время и адрес.\n\n"
+        f"Текст:\n{text}"
+    )
+
+    cmd = (
+        f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
+        f"{shlex.quote(OPENCLAW_BIN)} agent --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f"/bin/bash -lc {shlex.quote(cmd)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await proc.communicate()
+    except Exception:
+        logger.exception("openclaw extract launch failed")
+        return []
+
+    if proc.returncode != 0:
+        return []
+
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="ignore"))
+        result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+        parts = result.get("payloads") or []
+        text_out = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict))
+    except Exception:
+        logger.exception("openclaw extract parse failed")
+        return []
+
+    rows = _extract_json_array(text_out)
+    parsed: list[ParsedEvent] = []
+    for row in rows:
+        try:
+            d = datetime.date.fromisoformat(str(row.get("date", "")).strip())
+            st = datetime.time.fromisoformat(str(row.get("start_time", "")).strip())
+        except Exception:
+            continue
+
+        end_raw = row.get("end_time")
+        stop_time = None
+        if end_raw:
+            try:
+                stop_time = datetime.time.fromisoformat(str(end_raw).strip())
+            except Exception:
+                stop_time = None
+
+        rec_raw = str(row.get("recurrent", "never")).strip().lower()
+        recurrent = Recurrent.never
+        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
+            recurrent = Recurrent(rec_raw)
+
+        description = (str(row.get("description", "")).strip() or "Событие")
+        address = str(row.get("address", "")).strip()
+        if address:
+            description = f"{description} | Адрес: {address}"
+
+        parsed.append(ParsedEvent(event_date=d, start_time=st, stop_time=stop_time, description=description, recurrent=recurrent))
+
+    return parsed
+
+
 async def _save_parsed_events(parsed_events: list[ParsedEvent], user_id: int, tz_name: str) -> int:
     created = 0
     for item in parsed_events:
@@ -318,9 +420,13 @@ async def _process_extracted_text(update: Update, text: str) -> bool:
     user = await db_controller.get_user(update.effective_chat.id, platform="tg")
     tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
 
-    parsed_events = await parse_events_from_text(text, user_tz=tz_name)
+    parsed_events = await _extract_events_with_openclaw(text, user_tz=tz_name, locale=locale)
     if not parsed_events:
-        await update.message.reply_text(tr("Не смог выделить события из файла/голоса. Пришли текстом в формате: 'завтра в 15:00 ...'", locale))
+        parsed_events = await parse_events_from_text(text, user_tz=tz_name)
+    if not parsed_events:
+        await update.message.reply_text(
+            tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
+        )
         return True
 
     created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
