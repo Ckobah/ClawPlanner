@@ -1,8 +1,6 @@
 import datetime
 import logging
-import re
 from typing import Any, Callable
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from telegram import BotCommand, Update
@@ -17,10 +15,8 @@ from telegram.ext import (
 )
 
 # ggg
-from config import MULTI_USER_MODE, SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
-from database.db_controller import db_controller
+from config import SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from database.session import engine
-from entities import Event
 from handlers.cal import handle_calendar_callback, show_calendar
 from handlers.contacts import handle_contact, handle_team_callback, handle_team_command
 from handlers.events import (
@@ -38,8 +34,9 @@ from handlers.events import (
     show_upcoming_events,
 )
 from handlers.link import handle_link_callback
+from handlers.media import handle_pdf_message, handle_photo_message, handle_voice_message
 from handlers.notes import handle_note_callback, handle_note_text_input, show_notes
-from handlers.start import handle_help, handle_language, handle_location, handle_skip, start
+from handlers.start import handle_help, handle_language, handle_location, handle_skip, show_main_menu_keyboard, start
 from i18n import resolve_user_locale, tr, translate_markup
 
 load_dotenv(".env")
@@ -126,62 +123,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.exception("Unhandled error", exc_info=context.error)
 
 
-async def _try_quick_create_event_from_text(update: Update, locale: str | None = None) -> bool:
-    if not update.message or not update.effective_chat:
-        return False
-
-    text = (update.message.text or "").strip()
-    low = text.lower()
-
-    intent_markers = ["создай", "создать", "добавь", "добавить", "запланируй", "поставь"]
-    if not any(m in low for m in intent_markers):
-        return False
-
-    if "завтра" not in low:
-        return False
-
-    m = re.search(r"(?:\bв\s*)?([01]?\d|2[0-3])[:\.]([0-5]\d)\b", low)
-    if not m:
-        return False
-
-    hours = int(m.group(1))
-    minutes = int(m.group(2))
-
-    desc = text
-    for marker in ["по поводу", "насчет", "на тему", "о "]:
-        pos = low.find(marker)
-        if pos >= 0:
-            desc = text[pos + len(marker):].strip(" .,!?:;-")
-            break
-
-    if not desc:
-        desc = "Встреча"
-
-    user_id = update.effective_chat.id
-    user = await db_controller.get_user(user_id, platform="tg")
-    tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
-
-    today = datetime.datetime.now(ZoneInfo(tz_name)).date()
-    event_date = today + datetime.timedelta(days=1)
-
-    event = Event(
-        event_date=event_date,
-        description=desc,
-        start_time=datetime.time(hours, minutes),
-        tg_id=user_id,
-        creator_tg_id=user_id,
-    )
-    event_id = await db_controller.save_event(event=event, tz_name=tz_name)
-    if not event_id:
-        await update.message.reply_text(tr("Не получилось создать событие. Попробуйте через календарь.", locale))
-        return True
-
-    await update.message.reply_text(
-        tr("Готово ✅ Создал событие на завтра в {time}: {desc}", locale).format(time=f"{hours:02d}:{minutes:02d}", desc=desc)
-    )
-    return True
-
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("handle_text")
     logger.info(update)
@@ -257,6 +198,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(tr("Готово.", locale), reply_markup=reply_markup)
 
         if update.message:
+            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,
@@ -320,6 +262,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         context.chat_data.pop("await_event_description", None)
 
         if update.message:
+            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,
@@ -338,10 +281,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 logger.exception("Failed to delete description prompt message")
 
         return
-
-    if await _try_quick_create_event_from_text(update, locale):
-        return
-
     await update.message.reply_text(tr("Используйте кнопки для навигации.", locale))
 
 
@@ -367,18 +306,17 @@ async def set_commands(app):
     commands_ru = [
         BotCommand("start", "Запустить бота"),
         BotCommand("my_id", "Показать мой Telegram ID"),
+        BotCommand("team", "Управление участниками"),
         BotCommand("help", "Помощь"),
         BotCommand("language", "Сменить язык"),
     ]
     commands_en = [
         BotCommand("start", "Start bot"),
         BotCommand("my_id", "Show my Telegram ID"),
+        BotCommand("team", "Manage participants"),
         BotCommand("help", "Help"),
         BotCommand("language", "Change language"),
     ]
-    if MULTI_USER_MODE:
-        commands_ru.insert(2, BotCommand("team", "Управление участниками"))
-        commands_en.insert(2, BotCommand("team", "Manage participants"))
     await app.bot.set_my_commands(commands_ru, language_code="ru")
     await app.bot.set_my_commands(commands_en, language_code="en")
     await app.bot.set_my_commands(commands_en)
@@ -402,8 +340,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", handle_help))
     application.add_handler(CommandHandler("language", handle_language))
-    if MULTI_USER_MODE:
-        application.add_handler(CommandHandler("team", handle_team_command))
+    application.add_handler(CommandHandler("team", handle_team_command))
     application.add_handler(CommandHandler("my_id", handle_my_id))
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(MessageHandler(filters.Regex(r"^⏭ (Пропустить|Skip)$"), handle_skip))
@@ -417,10 +354,9 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_create_event_callback, pattern="^create_event_"))
     application.add_handler(CallbackQueryHandler(handle_edit_event_callback, pattern="^edit_event_"))
     application.add_handler(CallbackQueryHandler(handle_delete_event_callback, pattern="^delete_event_"))
-    if MULTI_USER_MODE:
-        application.add_handler(CallbackQueryHandler(handle_participants_callback, pattern="^participants_"))
-        application.add_handler(CallbackQueryHandler(handle_team_callback, pattern="^team_"))
-        application.add_handler(CallbackQueryHandler(handle_event_participants_callback, pattern="^create_participant_event_"))
+    application.add_handler(CallbackQueryHandler(handle_participants_callback, pattern="^participants_"))
+    application.add_handler(CallbackQueryHandler(handle_team_callback, pattern="^team_"))
+    application.add_handler(CallbackQueryHandler(handle_event_participants_callback, pattern="^create_participant_event_"))
     application.add_handler(CallbackQueryHandler(handle_reschedule_event_callback, pattern="^reschedule_event_"))
     application.add_handler(CallbackQueryHandler(handle_emoji_callback, pattern="^emoji_"))
     application.add_handler(CallbackQueryHandler(handle_link_callback, pattern="^link_tg_"))
@@ -428,8 +364,10 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r"^🗓 (Ближайшие события|Upcoming events)$"), show_upcoming_events))
     application.add_handler(MessageHandler(filters.Regex(r"^(📝 )?(Заметки|Notes)$"), show_notes))
 
-    if MULTI_USER_MODE:
-        application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
+    application.add_handler(MessageHandler(filters.Document.PDF, handle_pdf_message))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     application.add_handler(CallbackQueryHandler(all_callbacks))

@@ -37,9 +37,8 @@ DEFAULT_TIMEZONE_NAME: str = "Europe/Moscow"  # +3 MSK
 
 SERVICE_ACCOUNTS: str = os.getenv("SERVICE_ACCOUNTS", None)
 
-ALLOWED_TG_IDS_RAW = os.getenv("ALLOWED_TG_IDS", "")
-ALLOWED_TG_IDS = [int(x.strip()) for x in ALLOWED_TG_IDS_RAW.replace(";", ",").split(",") if x.strip().isdigit()]
-MULTI_USER_MODE = len(ALLOWED_TG_IDS) > 1
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "ru")
 
 WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", None)
 WEBHOOK_SECRET_TOKEN: str = os.getenv("WEBHOOK_SECRET_TOKEN", None)
