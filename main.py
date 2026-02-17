@@ -16,7 +16,9 @@ from telegram.ext import (
 
 # ggg
 from config import SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from database.db_controller import db_controller
 from database.session import engine
+from entities import Event
 from handlers.cal import handle_calendar_callback, show_calendar
 from handlers.contacts import handle_contact, handle_team_callback, handle_team_command
 from handlers.events import (
@@ -34,7 +36,7 @@ from handlers.events import (
     show_upcoming_events,
 )
 from handlers.link import handle_link_callback
-from handlers.media import handle_pdf_message, handle_photo_message, handle_voice_message
+from handlers.media import handle_pdf_message, handle_photo_message, handle_voice_message, parse_events_from_text
 from handlers.notes import handle_note_callback, handle_note_text_input, show_notes
 from handlers.start import handle_help, handle_language, handle_location, handle_skip, show_main_menu_keyboard, start
 from i18n import resolve_user_locale, tr, translate_markup
@@ -121,6 +123,53 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Skip expired callback query")
             return
     logger.exception("Unhandled error", exc_info=context.error)
+
+
+async def _try_create_events_from_free_text(update: Update, locale: str | None = None) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    text = (update.message.text or "").strip()
+    if not text:
+        return False
+
+    # не срабатываем на короткий бытовой чат без временных/событийных маркеров
+    low = text.lower()
+    intent_markers = [
+        "завтра", "сегодня", "послезавтра", "в ", "создай", "добавь", "встреч", "ежегод", "каждый",
+        "tomorrow", "today", "day after tomorrow", "create", "add", "schedule", "meeting", "event", "every", "at ",
+        ":", ".",
+    ]
+    if not any(x in low for x in intent_markers):
+        return False
+
+    user_id = update.effective_chat.id
+    user = await db_controller.get_user(user_id, platform="tg")
+    tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
+
+    parsed = await parse_events_from_text(text, user_tz=tz_name)
+    if not parsed:
+        return False
+
+    created = 0
+    for item in parsed:
+        event = Event(
+            event_date=item.event_date,
+            description=item.description,
+            start_time=item.start_time,
+            recurrent=item.recurrent,
+            tg_id=user_id,
+            creator_tg_id=user_id,
+        )
+        event_id = await db_controller.save_event(event=event, tz_name=tz_name)
+        if event_id:
+            created += 1
+
+    if created:
+        await update.message.reply_text(tr("Готово ✅ Добавил событий: {count}", locale).format(count=created))
+        return True
+
+    return False
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -281,6 +330,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 logger.exception("Failed to delete description prompt message")
 
         return
+
+    if await _try_create_events_from_free_text(update, locale):
+        return
+
     await update.message.reply_text(tr("Используйте кнопки для навигации.", locale))
 
 
