@@ -15,7 +15,7 @@ from telegram.ext import (
 )
 
 # ggg
-from config import SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from config import MULTI_USER_MODE, SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from database.session import engine
 from handlers.cal import handle_calendar_callback, show_calendar
 from handlers.contacts import handle_contact, handle_team_callback, handle_team_command
@@ -303,17 +303,18 @@ async def set_commands(app):
     commands_ru = [
         BotCommand("start", "Запустить бота"),
         BotCommand("my_id", "Показать мой Telegram ID"),
-        BotCommand("team", "Управление участниками"),
         BotCommand("help", "Помощь"),
         BotCommand("language", "Сменить язык"),
     ]
     commands_en = [
         BotCommand("start", "Start bot"),
         BotCommand("my_id", "Show my Telegram ID"),
-        BotCommand("team", "Manage participants"),
         BotCommand("help", "Help"),
         BotCommand("language", "Change language"),
     ]
+    if MULTI_USER_MODE:
+        commands_ru.insert(2, BotCommand("team", "Управление участниками"))
+        commands_en.insert(2, BotCommand("team", "Manage participants"))
     await app.bot.set_my_commands(commands_ru, language_code="ru")
     await app.bot.set_my_commands(commands_en, language_code="en")
     await app.bot.set_my_commands(commands_en)
@@ -337,7 +338,8 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", handle_help))
     application.add_handler(CommandHandler("language", handle_language))
-    application.add_handler(CommandHandler("team", handle_team_command))
+    if MULTI_USER_MODE:
+        application.add_handler(CommandHandler("team", handle_team_command))
     application.add_handler(CommandHandler("my_id", handle_my_id))
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(MessageHandler(filters.Regex(r"^⏭ (Пропустить|Skip)$"), handle_skip))
@@ -351,9 +353,10 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_create_event_callback, pattern="^create_event_"))
     application.add_handler(CallbackQueryHandler(handle_edit_event_callback, pattern="^edit_event_"))
     application.add_handler(CallbackQueryHandler(handle_delete_event_callback, pattern="^delete_event_"))
-    application.add_handler(CallbackQueryHandler(handle_participants_callback, pattern="^participants_"))
-    application.add_handler(CallbackQueryHandler(handle_team_callback, pattern="^team_"))
-    application.add_handler(CallbackQueryHandler(handle_event_participants_callback, pattern="^create_participant_event_"))
+    if MULTI_USER_MODE:
+        application.add_handler(CallbackQueryHandler(handle_participants_callback, pattern="^participants_"))
+        application.add_handler(CallbackQueryHandler(handle_team_callback, pattern="^team_"))
+        application.add_handler(CallbackQueryHandler(handle_event_participants_callback, pattern="^create_participant_event_"))
     application.add_handler(CallbackQueryHandler(handle_reschedule_event_callback, pattern="^reschedule_event_"))
     application.add_handler(CallbackQueryHandler(handle_emoji_callback, pattern="^emoji_"))
     application.add_handler(CallbackQueryHandler(handle_link_callback, pattern="^link_tg_"))
@@ -361,7 +364,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r"^🗓 (Ближайшие события|Upcoming events)$"), show_upcoming_events))
     application.add_handler(MessageHandler(filters.Regex(r"^(📝 )?(Заметки|Notes)$"), show_notes))
 
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    if MULTI_USER_MODE:
+        application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     application.add_handler(CallbackQueryHandler(all_callbacks))

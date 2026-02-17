@@ -7,7 +7,7 @@ import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import TOKEN
+from config import TOKEN, MULTI_USER_MODE
 from database.db_controller import db_controller
 from entities import Event, Recurrent, TgUser
 from i18n import format_localized_date, resolve_user_locale, tr
@@ -187,6 +187,9 @@ def generate_time_selector(hours: int = 12, minutes: int = 0, time_type: str = "
 async def handle_participants_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("handle_participants_callback")
     locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
+    if not MULTI_USER_MODE:
+        await update.callback_query.answer(tr("Режим участников отключен.", locale), show_alert=False)
+        return
 
     query = update.callback_query
     await query.answer()
@@ -417,8 +420,10 @@ def get_event_constructor(
     description_btn = InlineKeyboardButton(text=description, callback_data=f"create_event_description_{year}_{month}_{day}")
     emoji_btn = InlineKeyboardButton(text=(event.emoji if event and event.emoji else tr("Эмодзи", locale)), callback_data="emoji_open")
     recurrent_btn = InlineKeyboardButton(text=recurrent, callback_data=f"create_event_recurrent_{year}_{month}_{day}")
-    participants_btn = InlineKeyboardButton(text=participants, callback_data=f"create_event_participants_{year}_{month}_{day}")
-    buttons = [[start_btn, stop_btn], [emoji_btn], [description_btn], [recurrent_btn], [participants_btn]]
+    buttons = [[start_btn, stop_btn], [emoji_btn], [description_btn], [recurrent_btn]]
+    if MULTI_USER_MODE:
+        participants_btn = InlineKeyboardButton(text=participants, callback_data=f"create_event_participants_{year}_{month}_{day}")
+        buttons.append([participants_btn])
 
     if show_back_btn:
         callback_data = back_callback_data or "create_event_back_"
@@ -460,9 +465,14 @@ async def start_event_creation(
     )
     context.chat_data["event"] = event
 
-    participants = await db_controller.get_participants_with_status(tg_id=update.effective_chat.id, include_inactive=True)
-    context.chat_data["participants_status"] = {tg_id: is_active for tg_id, (_, is_active) in participants.items()}
-    context.chat_data["event"].all_user_participants = {tg_id: name for tg_id, (name, _) in participants.items()}
+    if MULTI_USER_MODE:
+        participants = await db_controller.get_participants_with_status(tg_id=update.effective_chat.id, include_inactive=True)
+        context.chat_data["participants_status"] = {tg_id: is_active for tg_id, (_, is_active) in participants.items()}
+        context.chat_data["event"].all_user_participants = {tg_id: name for tg_id, (name, _) in participants.items()}
+    else:
+        context.chat_data["participants_status"] = {}
+        context.chat_data["event"].all_user_participants = {}
+        context.chat_data["event"].participants = []
 
     has_participants = bool(event.all_user_participants)
     text, reply_markup = get_event_constructor(
@@ -626,6 +636,23 @@ async def handle_create_event_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(text=tr("Как часто повторять событие:", locale), reply_markup=reply_markup)
 
     elif data.startswith("create_event_participants_"):
+        if not MULTI_USER_MODE:
+            await query.answer(tr("Режим участников отключен.", locale), show_alert=False)
+            show_back_btn, back_callback_data = _get_back_button_state(context, event, year, month, day)
+            text, reply_markup = get_event_constructor(
+                event=event,
+                year=year,
+                month=month,
+                day=day,
+                locale=locale,
+                has_participants=False,
+                show_details=bool(context.chat_data.get("edit_event_id")),
+                show_back_btn=show_back_btn,
+                back_callback_data=back_callback_data,
+            )
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode="HTML")
+            return
+
         list_btn = []
         if event.all_user_participants:
             for tg_id, name in event.all_user_participants.items():
@@ -1026,6 +1053,9 @@ async def handle_delete_event_callback(update: Update, context: ContextTypes.DEF
 async def handle_event_participants_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("handle_event_participants_callback")
     query = update.callback_query
+    if not MULTI_USER_MODE:
+        await query.answer("Participants mode is disabled.", show_alert=False)
+        return
     data = query.data
 
     user = update.effective_chat

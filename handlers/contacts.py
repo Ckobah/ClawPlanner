@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 from database.db_controller import db_controller
 from entities import TgUser
 from i18n import resolve_user_locale, tr
+from config import MULTI_USER_MODE
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ def _build_team_keyboard(participants: dict[int, str], selected: set[int], local
 
 async def handle_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("handle_team_command")
+    if not MULTI_USER_MODE:
+        locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
+        await update.message.reply_text(tr("Режим участников отключен в этой версии бота.", locale))
+        return
     context.chat_data.pop("team_participants", None)
     context.chat_data.pop("team_selected", None)
     context.chat_data.pop("event", None)
@@ -132,6 +137,10 @@ async def handle_team_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("handle_contact")
+    locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
+    if not MULTI_USER_MODE:
+        await update.message.reply_text(tr("Режим участников отключен в этой версии бота.", locale))
+        return
 
     contact = update.message.contact
     if contact and not contact.user_id:
