@@ -1,178 +1,156 @@
-# tg-organazer
+# tg_bot_clawd — quick start (EN)
 
-Telegram bot for personal events and reminders with calendar UI, participants, and recurring events.
+Minimum steps, maximum result.
 
-Русская версия: `README.ru.md`.
+> Russian version: `README.ru.md`
 
-## Features
-- Calendar-based event creation and browsing.
-- Start/stop time picker and descriptions.
-- Emoji selection for events.
-- Recurrence: daily, weekly, monthly, annual.
-- Participants and shared events via contacts.
-- Upcoming events list.
-- Background reminder sender (`cron_handler.py`).
-- Inline edits of the event constructor message to reduce chat noise.
-- Built-in i18n with Babel (`ru`/`en`) for Telegram bot and `max_bot`.
+## What it is
 
-## Tech stack
-- Python 3.12
-- python-telegram-bot
-- SQLAlchemy (async) + Alembic
-- PostgreSQL or SQLite (local)
+Telegram bot with calendar/notes + smart ingestion for:
+- free-text commands (RU/EN),
+- voice messages,
+- PDF files,
+- photos/posters.
 
-## Project structure
-- `main.py` - bot entry point and handlers registration.
-- `handlers/` - Telegram handlers (calendar, events, contacts, start).
-- `database/` - async DB session and controller.
-- `entities.py` - Pydantic models for event/user entities.
-- `cron_handler.py` - scheduled reminders.
-- `migrations/` - Alembic migrations.
-- `api/` - NestJS API for the web app (PostgreSQL).
-- `web/` - React SPA (calendar UI + Telegram login).
+It extracts events (date, time, description, address) and writes them to PostgreSQL.
 
-## Requirements
-- Python 3.12
-- Telegram bot token from @BotFather
-- Database (PostgreSQL recommended for production)
+---
 
-## Environment variables
-Create a `.env` file in the project root:
+## 1) Prerequisites
 
-```env
-TG_BOT_TOKEN=your_telegram_bot_token
+- Linux (Ubuntu/Debian)
+- `python3`, `python3-venv`, `python3-pip`, `git`, `ffmpeg`
+- PostgreSQL (local or remote)
+- Telegram Bot Token from `@BotFather`
+- Your Telegram ID (`tg_id`)
+- **OpenClaw installed on the server** (used for smart processing)
 
-# Use SQLite locally
-LOCAL=1
+---
 
-# Or use PostgreSQL in production
-# DB_USERNAME=postgres
-# DB_PASSWORD=secret
-# DB_HOST=localhost
-# DB_PORT=5432
-# DB_NAME=tg_organazer
+## 2) Install system packages
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip ffmpeg postgresql-client
 ```
 
-Notes:
-- When `LOCAL` is set, SQLite is used (`sqlite+aiosqlite:///bot.db`).
-- Otherwise, PostgreSQL credentials are required.
+If PostgreSQL is on the same host:
 
-## Installation
-Create and activate a virtual environment:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+```bash
+sudo apt install -y postgresql
 ```
 
-Install dependencies from `pyproject.toml`:
+Check OpenClaw:
 
-```powershell
-python -m pip install .
+```bash
+openclaw --version
 ```
 
-Localization assets are stored in `locales/<lang>/LC_MESSAGES/messages.po`.
+---
 
-## Database setup
-Run migrations:
+## 3) (Optional) create DB/user
 
-```powershell
-alembic upgrade head
+```bash
+sudo -u postgres psql
 ```
 
-For local SQLite, the database file `bot.db` will be created automatically.
-
-## Running the bot
-
-```powershell
-python main.py
+```sql
+CREATE USER clawd_bot WITH PASSWORD 'ChangeMe_Strong_123!';
+CREATE DATABASE clawd_bot OWNER clawd_bot;
+GRANT ALL PRIVILEGES ON DATABASE clawd_bot TO clawd_bot;
+\q
 ```
 
-## Running scheduled reminders
-This script finds events for the current time and sends reminders:
+---
 
-```powershell
-python cron_handler.py
+## 4) Clone project
+
+```bash
+git clone https://github.com/Ckobah/ClawPlanner ~/tg_bot_clawd
+cd ~/tg_bot_clawd
 ```
 
-Use Task Scheduler or any cron equivalent to run it periodically.
+---
 
-## Testing
-Install test dependencies in the active environment:
+## 5) Configure `.env` interactively
 
-```powershell
-python -m pip install pytest pytest-asyncio
+```bash
+./scripts/configure.sh
 ```
 
-Run tests:
+You will be asked for:
+- `TG_BOT_TOKEN`
+- `ALLOWED_TG_IDS` (usually only your `tg_id`)
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
+- `WHISPER_MODEL`, `WHISPER_LANGUAGE`
 
-```powershell
-python -m pytest -q
+---
+
+## 6) One-command install + run
+
+```bash
+./scripts/install.sh
 ```
 
-## Usage examples
-Start the bot and create an event through the calendar:
-- Open the bot in Telegram.
-- Choose "Calendar" from the keyboard.
-- Select a date, set time and description.
-- Save and verify it appears on the selected day.
+This script will:
+- create `.venv`,
+- install dependencies,
+- run DB migrations,
+- create `systemd --user` service `tg-bot-clawd.service`,
+- start the service,
+- configure reminder cron jobs.
 
-Notes:
-- The constructor message is edited in place when you change time, emoji, description, recurrence, or participants.
-- The description prompt appears as a separate message and is removed after you send the text (same as manual time input).
+---
 
-Add a participant:
-- Share a contact in the chat.
-- Create an event and select participants from the list.
-- Participant receives a notification with a cancellation button.
+## 7) Verify
 
-## Development notes
-- Default timezone offset is `DEFAULT_TIMEZONE = 3` (MSK).
-- Time is stored in UTC in the database.
-- For recurring events, the controller expands the occurrence list on demand.
-
-## License
-Specify your license here.
-
-## Web app
-API (NestJS):
-
-```powershell
-cd api
-cp .env.example .env
-npm install
-npm run start:dev
+```bash
+./scripts/check.sh
+systemctl --user status tg-bot-clawd.service --no-pager -n 30
+journalctl --user -u tg-bot-clawd.service -n 50 --no-pager
 ```
 
-SPA (React):
+---
 
-```powershell
-cd web
-cp .env.example .env
-npm install
-npm run dev
+## 8) Telegram smoke test
+
+In `@your_bot`, test:
+1. `/start`
+2. `📅 Show calendar`
+3. Text: `Create a meeting tomorrow at 15:00 about video content`
+4. Voice message with an event
+5. PDF/poster/ticket
+6. Note text: `create note: buy a microphone`
+
+---
+
+## 9) Auto-start after reboot
+
+```bash
+sudo loginctl enable-linger $USER
 ```
 
-Web app capabilities:
-- month calendar with per-day counts;
-- day view for the selected date;
-- create events with time, recurrence, and participants;
-- delete events (including canceling a single recurrence);
-- participant management with inactive status labels.
+---
 
-Bot-only features (not available in the web app):
-- event emojis;
-- event editing;
-- upcoming events list;
-- reschedule by +1 hour / next day from reminders;
-- week navigation in the calendar.
+## 10) Update to latest version
 
-Environment notes:
-- `TG_BOT_TOKEN` is required in `api/.env` for Telegram login signature checks.
-- `VITE_TG_BOT_USERNAME` must match your bot username for the login widget.
-- `CLIENT_URL` should point to the SPA URL (comma-separated list allowed).
+```bash
+cd ~/tg_bot_clawd
+./scripts/update.sh
+```
 
-## VPS deployment (outline)
-- Build API: `npm run build` in `api/`, run with pm2 or systemd on port 3000.
-- Build SPA: `npm run build` in `web/`, serve `web/dist` via Nginx.
-- Configure Nginx reverse proxy to `http://127.0.0.1:3000` for `/api` or a separate subdomain.
+---
+
+## 11) Manual restart
+
+```bash
+systemctl --user restart tg-bot-clawd.service
+```
+
+---
+
+## Important
+
+- If `LOCAL` is **not** set in `.env`, bot uses **PostgreSQL**.
+- For single-user mode (no participants), keep only one ID in `ALLOWED_TG_IDS`.
+- For high-quality smart extraction (PDF/posters/voice), OpenClaw must be available on the host.
