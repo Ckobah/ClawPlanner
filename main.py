@@ -1,5 +1,6 @@
 import datetime
 import logging
+import re
 from typing import Any, Callable
 
 from dotenv import load_dotenv
@@ -125,6 +126,51 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.exception("Unhandled error", exc_info=context.error)
 
 
+async def _try_create_note_from_free_text(update: Update, locale: str | None = None) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    text = (update.message.text or "").strip()
+    if not text:
+        return False
+
+    low = text.lower()
+
+    # Явные маркеры заметки (ru/en)
+    note_markers = [
+        "заметк", "note", "notes", "memo",
+        "запиши", "запомни", "remember",
+    ]
+    if not any(m in low for m in note_markers):
+        return False
+
+    # Извлекаем текст заметки
+    note_text = text
+
+    m = re.search(
+        r"^(?:добавь|создай|сделай|запиши|запомни|add|create|make|remember)\s+(?:мне\s+)?(?:новую\s+)?(?:заметку|note|memo)[:\-\s]*(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        note_text = m.group(1).strip()
+    else:
+        m2 = re.search(r"^(?:заметка|note|memo)[:\-\s]+(.+)$", text, flags=re.IGNORECASE)
+        if m2:
+            note_text = m2.group(1).strip()
+
+    if not note_text:
+        return False
+
+    note_user_id = await db_controller.get_user_row_id(external_id=update.effective_chat.id, platform="tg")
+    if note_user_id is None:
+        return False
+
+    await db_controller.create_note(user_id=note_user_id, note_text=note_text)
+    await update.message.reply_text(tr("📝 Заметка сохранена", locale))
+    return True
+
+
 async def _try_create_events_from_free_text(update: Update, locale: str | None = None) -> bool:
     if not update.message or not update.effective_chat:
         return False
@@ -157,6 +203,7 @@ async def _try_create_events_from_free_text(update: Update, locale: str | None =
             event_date=item.event_date,
             description=item.description,
             start_time=item.start_time,
+            stop_time=item.stop_time,
             recurrent=item.recurrent,
             tg_id=user_id,
             creator_tg_id=user_id,
@@ -329,6 +376,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to delete description prompt message")
 
+        return
+
+    if await _try_create_note_from_free_text(update, locale):
         return
 
     if await _try_create_events_from_free_text(update, locale):
