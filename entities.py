@@ -7,7 +7,14 @@ from config import MONTH_NAMES
 from i18n import tr
 
 
-class Recurrent(enum.StrEnum):
+try:
+    StrEnumBase = enum.StrEnum  # py3.11+
+except AttributeError:
+    class StrEnumBase(str, enum.Enum):
+        pass
+
+
+class Recurrent(StrEnumBase):
     never = "never"
     daily = "daily"
     weekly = "weekly"
