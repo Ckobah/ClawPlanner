@@ -28,7 +28,8 @@ _ocr_engine = None
 class ParsedEvent:
     event_date: datetime.date
     start_time: datetime.time
-    description: str
+    stop_time: datetime.time | None = None
+    description: str = "Событие"
     recurrent: Recurrent = Recurrent.never
 
 
@@ -178,17 +179,37 @@ def _extract_date_from_segment(segment: str, base_date: datetime.date) -> dateti
         return None
 
 
-def _extract_time_from_segment(segment: str) -> datetime.time | None:
+def _extract_time_range_from_segment(segment: str) -> tuple[datetime.time | None, datetime.time | None]:
     low = segment.lower()
+
+    # 11:00-12:30 / 11.00 - 12.30
+    m_range = re.search(r"([01]?\d|2[0-3])[:\.]([0-5]\d)\s*[-–—]\s*([01]?\d|2[0-3])[:\.]([0-5]\d)", low)
+    if m_range:
+        start = datetime.time(int(m_range.group(1)), int(m_range.group(2)))
+        stop = datetime.time(int(m_range.group(3)), int(m_range.group(4)))
+        return start, stop
+
+    # с 11:00 до 12:30 / from 11:00 to 12:30
+    m_from_to = re.search(
+        r"(?:с|from)\s*([01]?\d|2[0-3])[:\.]([0-5]\d)\s*(?:до|to|till|until)\s*([01]?\d|2[0-3])[:\.]([0-5]\d)",
+        low,
+    )
+    if m_from_to:
+        start = datetime.time(int(m_from_to.group(1)), int(m_from_to.group(2)))
+        stop = datetime.time(int(m_from_to.group(3)), int(m_from_to.group(4)))
+        return start, stop
+
+    # single time
     m = re.search(r"(?:\bв\s*|\bat\s*)?([01]?\d|2[0-3])[:\.]([0-5]\d)\b", low)
     if m:
-        return datetime.time(int(m.group(1)), int(m.group(2)))
+        return datetime.time(int(m.group(1)), int(m.group(2))), None
 
     # allow "at 11" / "в 11"
     m2 = re.search(r"(?:\bв\s*|\bat\s*)([01]?\d|2[0-3])\b", low)
     if m2:
-        return datetime.time(int(m2.group(1)), 0)
-    return None
+        return datetime.time(int(m2.group(1)), 0), None
+
+    return None, None
 
 
 def _extract_recurrent(segment: str) -> Recurrent:
@@ -249,8 +270,8 @@ async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
 
     for chunk in chunks:
         event_date = _extract_date_from_segment(chunk, base_date)
-        event_time = _extract_time_from_segment(chunk)
-        if not event_time:
+        start_time, stop_time = _extract_time_range_from_segment(chunk)
+        if not start_time:
             continue
         if event_date is None:
             # если дата не указана, по умолчанию считаем "завтра"
@@ -258,7 +279,15 @@ async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
 
         description = _extract_description(chunk)
         recurrent = _extract_recurrent(chunk)
-        parsed.append(ParsedEvent(event_date=event_date, start_time=event_time, description=description, recurrent=recurrent))
+        parsed.append(
+            ParsedEvent(
+                event_date=event_date,
+                start_time=start_time,
+                stop_time=stop_time,
+                description=description,
+                recurrent=recurrent,
+            )
+        )
 
     return parsed
 
@@ -270,6 +299,7 @@ async def _save_parsed_events(parsed_events: list[ParsedEvent], user_id: int, tz
             event_date=item.event_date,
             description=item.description,
             start_time=item.start_time,
+            stop_time=item.stop_time,
             recurrent=item.recurrent,
             tg_id=user_id,
             creator_tg_id=user_id,

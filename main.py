@@ -1,6 +1,11 @@
+import asyncio
 import datetime
+import json
 import logging
+import os
 import re
+import shlex
+import shutil
 from typing import Any, Callable
 
 from dotenv import load_dotenv
@@ -16,7 +21,7 @@ from telegram.ext import (
 )
 
 # ggg
-from config import SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
+from config import DEFAULT_TIMEZONE_NAME, SERVICE_ACCOUNTS, TOKEN, WEBHOOK_SECRET_TOKEN, WEBHOOK_URL
 from database.db_controller import db_controller
 from database.session import engine
 from entities import Event
@@ -46,6 +51,10 @@ load_dotenv(".env")
 
 
 logger = logging.getLogger(__name__)
+
+AI_SESSION_PREFIX = os.getenv("AI_SESSION_PREFIX", "tg_planner_user")
+AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "90"))
+OPENCLAW_BIN = os.getenv("OPENCLAW_BIN") or shutil.which("openclaw") or "/home/clawd/.npm-global/bin/openclaw"
 
 
 def _arg_get(args: tuple[Any, ...], kwargs: dict[str, Any], index: int, key: str) -> Any:
@@ -124,6 +133,56 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Skip expired callback query")
             return
     logger.exception("Unhandled error", exc_info=context.error)
+
+
+async def ask_clawd(user_id: int, text: str) -> str:
+    session_id = f"{AI_SESSION_PREFIX}_{user_id}"
+    user = await db_controller.get_user(user_id, platform="tg")
+    user_name = (user.first_name or user.username) if user else None
+    user_tz = (user.time_zone or DEFAULT_TIMEZONE_NAME) if user else DEFAULT_TIMEZONE_NAME
+
+    prompt = (
+        "Ты помощник в Telegram. Отвечай кратко и по делу, предпочтительно на языке пользователя. "
+        "Если запрос про календарь/заметки и данных недостаточно — уточняй. "
+        "Если это общий вопрос — просто помоги.\n\n"
+        f"Контекст: name={user_name or 'unknown'}, timezone={user_tz}.\n"
+        f"Сообщение пользователя: {text}"
+    )
+
+    cmd = (
+        f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
+        f"{shlex.quote(OPENCLAW_BIN)} agent "
+        f"--session-id {shlex.quote(session_id)} "
+        f"--message {shlex.quote(prompt)} "
+        f"--json --timeout {AI_TIMEOUT_SECONDS}"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f"/bin/bash -lc {shlex.quote(cmd)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+    except Exception:
+        logger.exception("Failed to run openclaw agent via %s", OPENCLAW_BIN)
+        return "Сейчас не могу обратиться к OpenClaw. Попробуй ещё раз чуть позже."
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="ignore").strip()
+        logger.error("openclaw agent failed: %s", err)
+        return "Не получилось обработать запрос прямо сейчас."
+
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="ignore"))
+        result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+        parts = result.get("payloads") or []
+        texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")]
+        answer = "\n\n".join(texts).strip()
+        return answer or "Нужен чуть более конкретный запрос 🙂"
+    except Exception:
+        logger.exception("Failed to parse openclaw agent response")
+        return "Не смог разобрать ответ OpenClaw. Попробуй ещё раз."
 
 
 async def _try_create_note_from_free_text(update: Update, locale: str | None = None) -> bool:
@@ -382,6 +441,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if await _try_create_events_from_free_text(update, locale):
+        return
+
+    if update.message and update.effective_chat:
+        answer = await ask_clawd(update.effective_chat.id, update.message.text or "")
+        await update.message.reply_text(answer)
         return
 
     await update.message.reply_text(tr("Используйте кнопки для навигации.", locale))
