@@ -353,7 +353,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(tr("Готово.", locale), reply_markup=reply_markup)
 
         if update.message:
-            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,
@@ -417,7 +416,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         context.chat_data.pop("await_event_description", None)
 
         if update.message:
-            await show_main_menu_keyboard(update.message)
             try:
                 await context.bot.delete_message(
                     chat_id=update.message.chat_id,
