@@ -196,42 +196,4 @@ def translate_markup(markup: Any, locale: str | None) -> Any:
             is_persistent=getattr(markup, "is_persistent", None),
         )
 
-    try:
-        from max_bot.compat import InlineKeyboardButton as MaxInlineKeyboardButton
-        from max_bot.compat import InlineKeyboardMarkup as MaxInlineKeyboardMarkup
-        from max_bot.compat import KeyboardButton as MaxKeyboardButton
-        from max_bot.compat import ReplyKeyboardMarkup as MaxReplyKeyboardMarkup
-    except Exception:  # noqa: BLE001
-        MaxInlineKeyboardButton = MaxInlineKeyboardMarkup = MaxKeyboardButton = MaxReplyKeyboardMarkup = None  # type: ignore[assignment]
-
-    if MaxInlineKeyboardMarkup and isinstance(markup, MaxInlineKeyboardMarkup):
-        keyboard = []
-        for row in markup.inline_keyboard:
-            keyboard_row = []
-            for button in row:
-                keyboard_row.append(
-                    MaxInlineKeyboardButton(
-                        text=tr(button.text, locale=locale),
-                        callback_data=button.callback_data,
-                        url=button.url,
-                        request_contact=button.request_contact,
-                        request_geo_location=button.request_geo_location,
-                    )
-                )
-            keyboard.append(keyboard_row)
-        return MaxInlineKeyboardMarkup(keyboard)
-
-    if MaxReplyKeyboardMarkup and isinstance(markup, MaxReplyKeyboardMarkup):
-        keyboard = []
-        for row in markup.keyboard:
-            keyboard_row = []
-            for button in row:
-                keyboard_row.append(MaxKeyboardButton(text=tr(button.text, locale=locale), request_location=button.request_location))
-            keyboard.append(keyboard_row)
-        return MaxReplyKeyboardMarkup(
-            keyboard=keyboard,
-            resize_keyboard=markup.resize_keyboard,
-            one_time_keyboard=markup.one_time_keyboard,
-        )
-
     return markup

@@ -21,4 +21,3 @@ jobs:
             cd /home/tg_bot
             git pull
             sudo systemctl restart tg_bot
-            sudo systemctl restart tg_max_bot
