@@ -13,10 +13,12 @@ from telegram import BotCommand, Update
 from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -62,6 +64,22 @@ logger = logging.getLogger(__name__)
 AI_SESSION_PREFIX = os.getenv("AI_SESSION_PREFIX", "tg_planner_user")
 AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "90"))
 OPENCLAW_BIN = os.getenv("OPENCLAW_BIN") or shutil.which("openclaw") or "/home/clawd/.npm-global/bin/openclaw"
+
+
+def _parse_allowed_ids(raw: str | None) -> set[int]:
+    allowed: set[int] = set()
+    for chunk in (raw or "").replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            allowed.add(int(chunk))
+        except ValueError:
+            logger.warning("Skip invalid ALLOWED_TG_IDS value: %s", chunk)
+    return allowed
+
+
+ALLOWED_TG_IDS = _parse_allowed_ids(os.getenv("ALLOWED_TG_IDS"))
 
 
 def _arg_get(args: tuple[Any, ...], kwargs: dict[str, Any], index: int, key: str) -> Any:
@@ -140,6 +158,32 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Skip expired callback query")
             return
     logger.exception("Unhandled error", exc_info=context.error)
+
+
+async def enforce_allowed_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not ALLOWED_TG_IDS:
+        return
+
+    user_id = None
+    if update.effective_user:
+        user_id = update.effective_user.id
+    elif update.effective_chat:
+        user_id = update.effective_chat.id
+
+    if user_id in ALLOWED_TG_IDS:
+        return
+
+    logger.warning("Access denied for tg_id=%s", user_id)
+
+    try:
+        if update.callback_query:
+            await update.callback_query.answer("Доступ запрещен", show_alert=True)
+        elif update.message:
+            await update.message.reply_text("⛔ Доступ запрещен")
+    except Exception:
+        logger.exception("Failed to send access denied response")
+
+    raise ApplicationHandlerStop
 
 
 async def ask_clawd(user_id: int, text: str) -> str:
@@ -511,6 +555,9 @@ async def shutdown(app):
 def main() -> None:
     application = ApplicationBuilder().token(TOKEN).post_shutdown(shutdown).build()
     patch_telegram_bot_i18n(application.bot)
+
+    # Access guard for private bot usage
+    application.add_handler(TypeHandler(Update, enforce_allowed_users), group=-1)
 
     # start, Получение геолокации и Пропуск геолокации
     application.add_handler(CommandHandler("start", start))
