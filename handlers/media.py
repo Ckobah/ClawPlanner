@@ -221,14 +221,35 @@ def _extract_time_range_from_segment(segment: str) -> tuple[datetime.time | None
 
 def _extract_recurrent(segment: str) -> Recurrent:
     low = segment.lower()
-    if any(x in low for x in ["ежегод", "каждый год", "annual", "yearly", "every year"]):
+
+    annual_markers = [
+        "ежегод", "ежегодно", "каждый год", "раз в год", "годовщин", "annual", "yearly", "every year", "once a year",
+    ]
+    monthly_markers = [
+        "ежемесяч", "ежемесячно", "каждый месяц", "раз в месяц", "monthly", "every month", "once a month",
+    ]
+    weekly_markers = [
+        "еженед", "еженедельно", "каждую неделю", "каждой неделе", "раз в неделю", "weekly", "every week", "once a week",
+    ]
+    daily_markers = [
+        "ежеднев", "ежедневно", "каждый день", "каждыйдень", "раз в день", "daily", "every day", "once a day",
+    ]
+
+    if any(x in low for x in annual_markers):
         return Recurrent.annual
-    if any(x in low for x in ["ежемесяч", "каждый месяц", "monthly", "every month"]):
+    if any(x in low for x in monthly_markers):
         return Recurrent.monthly
-    if any(x in low for x in ["еженед", "каждую неделю", "weekly", "every week"]):
+    if any(x in low for x in weekly_markers):
         return Recurrent.weekly
-    if any(x in low for x in ["ежеднев", "каждый день", "daily", "every day"]):
+    if any(x in low for x in daily_markers):
         return Recurrent.daily
+
+    # "каждый понедельник" / "every monday" => weekly
+    weekday_ru = ["понедельник", "вторник", "сред", "четверг", "пятниц", "суббот", "воскресень"]
+    weekday_en = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    if ("каждый" in low and any(w in low for w in weekday_ru)) or ("every" in low and any(w in low for w in weekday_en)):
+        return Recurrent.weekly
+
     return Recurrent.never
 
 
@@ -472,8 +493,18 @@ async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | N
 
         rec_raw = str(row.get("recurrent", "never")).strip().lower()
         recurrent = Recurrent.never
-        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
-            recurrent = Recurrent(rec_raw)
+        rec_map = {
+            "never": Recurrent.never,
+            "daily": Recurrent.daily,
+            "weekly": Recurrent.weekly,
+            "monthly": Recurrent.monthly,
+            "annual": Recurrent.annual,
+            "ежедневно": Recurrent.daily,
+            "еженедельно": Recurrent.weekly,
+            "ежемесячно": Recurrent.monthly,
+            "ежегодно": Recurrent.annual,
+        }
+        recurrent = rec_map.get(rec_raw, recurrent)
 
         description = (str(row.get("description", "")).strip() or "Событие")
         address = str(row.get("address", "")).strip()
@@ -539,8 +570,18 @@ def _deserialize_parsed_events(payload: list[dict]) -> list[ParsedEvent]:
 
         rec_raw = str(row.get("recurrent", "never")).strip().lower()
         recurrent = Recurrent.never
-        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
-            recurrent = Recurrent(rec_raw)
+        rec_map = {
+            "never": Recurrent.never,
+            "daily": Recurrent.daily,
+            "weekly": Recurrent.weekly,
+            "monthly": Recurrent.monthly,
+            "annual": Recurrent.annual,
+            "ежедневно": Recurrent.daily,
+            "еженедельно": Recurrent.weekly,
+            "ежемесячно": Recurrent.monthly,
+            "ежегодно": Recurrent.annual,
+        }
+        recurrent = rec_map.get(rec_raw, recurrent)
 
         description = str(row.get("description", "")).strip() or "Событие"
         parsed.append(ParsedEvent(event_date=d, start_time=st, stop_time=stop_time, description=description, recurrent=recurrent))
@@ -652,8 +693,18 @@ def _parse_openclaw_smart_payload(raw: str) -> tuple[list[ParsedEvent], str | No
 
         rec_raw = str(row.get("recurrent", "never")).strip().lower()
         recurrent = Recurrent.never
-        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
-            recurrent = Recurrent(rec_raw)
+        rec_map = {
+            "never": Recurrent.never,
+            "daily": Recurrent.daily,
+            "weekly": Recurrent.weekly,
+            "monthly": Recurrent.monthly,
+            "annual": Recurrent.annual,
+            "ежедневно": Recurrent.daily,
+            "еженедельно": Recurrent.weekly,
+            "ежемесячно": Recurrent.monthly,
+            "ежегодно": Recurrent.annual,
+        }
+        recurrent = rec_map.get(rec_raw, recurrent)
 
         description = (str(row.get("description", "")).strip() or "Событие")
         address = str(row.get("address", "")).strip()
