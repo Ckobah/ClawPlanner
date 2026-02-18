@@ -803,6 +803,50 @@ async def _ask_openclaw_general(text: str, user_tz: str, user_id: int | None = N
         return None
 
 
+async def _try_answer_calendar_query(update: Update, text: str, tz_name: str, locale: str | None = None) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    low = (text or "").lower().strip()
+    if not low:
+        return False
+
+    markers = [
+        "что у меня запланировано",
+        "какие у меня события",
+        "что у меня на",
+        "what do i have",
+        "my events",
+        "what is scheduled",
+    ]
+    if not any(m in low for m in markers):
+        return False
+
+    tz = ZoneInfo(tz_name)
+    base_date = datetime.datetime.now(tz).date()
+    target_date = _extract_date_from_segment(low, base_date)
+    if not target_date:
+        await update.message.reply_text(tr("Уточни дату, пожалуйста: например, на 8 марта или на завтра.", locale))
+        return True
+
+    events = await db_controller.get_current_day_events_by_user(
+        user_id=update.effective_chat.id,
+        year=target_date.year,
+        month=target_date.month,
+        day=target_date.day,
+        tz_name=tz_name,
+        platform="tg",
+    )
+    if not events:
+        await update.message.reply_text(tr("На {date} событий не нашёл.", locale).format(date=target_date.strftime("%d.%m.%Y")))
+        return True
+
+    await update.message.reply_text(
+        tr("На {date} у тебя:\n{events}", locale).format(date=target_date.strftime("%d.%m.%Y"), events=events)
+    )
+    return True
+
+
 async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     if not update.message or not update.effective_chat:
         return False
@@ -810,6 +854,9 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
     locale = await resolve_user_locale(update.effective_chat.id, platform="tg")
     user = await db_controller.get_user(update.effective_chat.id, platform="tg")
     tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
+
+    if await _try_answer_calendar_query(update, text, tz_name, locale=locale):
+        return True
 
     parsed_events = _extract_ticket_event_hint(text, user_tz=tz_name)
     if not parsed_events:
