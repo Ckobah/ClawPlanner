@@ -122,6 +122,15 @@ In `@your_bot`, test:
 5. PDF/poster/ticket
 6. Note text: `create note: buy a microphone`
 
+### Main menu UI
+
+After `/start`, the bot shows a bottom reply keyboard with three actions:
+- `📅 Show calendar`
+- `🗓 Upcoming events`
+- `📝 Notes`
+
+Expected behavior: after pressing `📅 Show calendar`, the bot sends a message with current date/weather and an inline calendar for day selection.
+
 ---
 
 ## 9) Auto-start after reboot
