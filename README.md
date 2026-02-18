@@ -131,6 +131,8 @@ After `/start`, the bot shows a bottom reply keyboard with three actions:
 
 Expected behavior: after pressing `📅 Show calendar`, the bot sends a message with current date/weather and an inline calendar for day selection.
 
+![Telegram bot main menu](docs/images/main-menu.jpg)
+
 ---
 
 ## 9) Auto-start after reboot
