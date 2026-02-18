@@ -854,6 +854,45 @@ async def _try_answer_calendar_query(update: Update, text: str, tz_name: str, lo
     return True
 
 
+async def _try_answer_description_query(update: Update, text: str, tz_name: str, locale: str | None = None) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    low = (text or "").lower().strip()
+    if not low:
+        return False
+
+    if "когда у меня" not in low and "when is my" not in low:
+        return False
+
+    query_text = low
+    for marker in ["когда у меня", "when is my"]:
+        if marker in query_text:
+            query_text = query_text.split(marker, 1)[1].strip(" ?!.,")
+            break
+
+    if len(query_text) < 2:
+        await update.message.reply_text(tr("Уточни, что именно ищем: например, ‘когда у меня стоматолог?’", locale))
+        return True
+
+    found = await db_controller.find_events_by_description(
+        user_id=update.effective_chat.id,
+        query_text=query_text,
+        tz_name=tz_name,
+        platform="tg",
+        limit=8,
+    )
+    if not found:
+        await update.message.reply_text(tr("По запросу ‘{q}’ ничего не нашёл в описаниях событий.", locale).format(q=query_text))
+        return True
+
+    lines = [tr("Нашёл по запросу ‘{q}’:", locale).format(q=query_text)]
+    for dt, desc in found[:8]:
+        lines.append(f"- {dt.strftime('%d.%m.%Y %H:%M')} — {desc}")
+    await update.message.reply_text("\n".join(lines))
+    return True
+
+
 async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     if not update.message or not update.effective_chat:
         return False
@@ -863,6 +902,8 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
     tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
 
     if await _try_answer_calendar_query(update, text, tz_name, locale=locale):
+        return True
+    if await _try_answer_description_query(update, text, tz_name, locale=locale):
         return True
 
     parsed_events = _extract_ticket_event_hint(text, user_tz=tz_name)

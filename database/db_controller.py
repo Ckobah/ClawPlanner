@@ -1065,6 +1065,39 @@ class DBController:
             return event_list
 
     @staticmethod
+    async def find_events_by_description(
+        user_id: int,
+        query_text: str,
+        tz_name: str = config.DEFAULT_TIMEZONE_NAME,
+        platform: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[datetime, str]]:
+        user_tz = ZoneInfo(tz_name)
+        event_user_col = DBController._event_user_column(platform)
+
+        async with AsyncSessionLocal() as session:
+            user_row_id = await DBController._resolve_user_row_id_by_external(user_id, platform, session)
+            if user_row_id is None:
+                return []
+
+            q = (
+                select(DbEvent)
+                .where(
+                    event_user_col == user_row_id,
+                    DbEvent.description.ilike(f"%{query_text}%"),
+                )
+                .order_by(DbEvent.start_at.asc())
+                .limit(limit)
+            )
+            events = (await session.execute(q)).scalars().all()
+
+        result: list[tuple[datetime, str]] = []
+        for ev in events:
+            start_local = ev.start_at.astimezone(user_tz)
+            result.append((start_local, ev.description or "Событие"))
+        return result
+
+    @staticmethod
     async def create_cancel_event(event_id: int, cancel_date: date) -> None:
         new_cancel_event = CanceledEvent(cancel_date=cancel_date, event_id=int(event_id))
         async with AsyncSessionLocal() as session:

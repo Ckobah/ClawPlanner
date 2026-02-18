@@ -330,6 +330,32 @@ async def _answer_profile_query(user_id: int, text: str) -> str | None:
 
         return f"На {target_date.strftime('%d.%m.%Y')} у тебя:\n{events}"
 
+    if "когда у меня" in low or "when is my" in low:
+        user_tz = user.time_zone or DEFAULT_TIMEZONE_NAME
+        query_text = low
+        for marker in ["когда у меня", "when is my"]:
+            if marker in query_text:
+                query_text = query_text.split(marker, 1)[1].strip(" ?!.,")
+                break
+
+        if len(query_text) < 2:
+            return "Уточни, что именно ищем: например, ‘когда у меня стоматолог?’"
+
+        found = await db_controller.find_events_by_description(
+            user_id=user_id,
+            query_text=query_text,
+            tz_name=user_tz,
+            platform="tg",
+            limit=8,
+        )
+        if not found:
+            return f"По запросу ‘{query_text}’ ничего не нашёл в описаниях событий."
+
+        lines = [f"Нашёл по запросу ‘{query_text}’:"]
+        for dt, desc in found[:8]:
+            lines.append(f"- {dt.strftime('%d.%m.%Y %H:%M')} — {desc}")
+        return "\n".join(lines)
+
     return None
 
 
