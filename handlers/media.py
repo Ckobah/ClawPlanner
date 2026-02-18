@@ -414,7 +414,7 @@ def _extract_json_array(raw: str) -> list[dict]:
     return []
 
 
-async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | None = None) -> list[ParsedEvent]:
+async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | None = None, user_id: int | None = None) -> list[ParsedEvent]:
     prompt = (
         "Извлеки события из текста/афиши. Верни только JSON-массив без пояснений. "
         "Каждый объект: date(YYYY-MM-DD), start_time(HH:MM), end_time(HH:MM|null), description, address, recurrent(one of: never,daily,weekly,monthly,annual). "
@@ -423,9 +423,10 @@ async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | N
         f"Текст:\n{text}"
     )
 
+    session_id = f"tg_planner_media_extract_{user_id or 'shared'}"
     cmd = (
         f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
-        f"{shlex.quote(OPENCLAW_BIN)} agent --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
+        f"{shlex.quote(OPENCLAW_BIN)} agent --session-id {shlex.quote(session_id)} --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
     )
 
     try:
@@ -434,12 +435,13 @@ async def _extract_events_with_openclaw(text: str, user_tz: str, locale: str | N
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _stderr = await proc.communicate()
+        stdout, stderr = await proc.communicate()
     except Exception:
         logger.exception("openclaw extract launch failed")
         return []
 
     if proc.returncode != 0:
+        logger.error("openclaw extract failed rc=%s stderr=%s", proc.returncode, stderr.decode("utf-8", errors="ignore").strip())
         return []
 
     try:
@@ -663,7 +665,7 @@ def _parse_openclaw_smart_payload(raw: str) -> tuple[list[ParsedEvent], str | No
     return parsed, None
 
 
-async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str) -> tuple[list[ParsedEvent], str | None]:
+async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str, user_id: int | None = None) -> tuple[list[ParsedEvent], str | None]:
     prompt = (
         "Используй навык smart-event-ingest, если он доступен. "
         "Ты извлекаешь события из OCR/голосового текста для календаря. "
@@ -675,9 +677,10 @@ async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str) -> t
         "Текст:\n" + text
     )
 
+    session_id = f"tg_planner_media_extract_{user_id or 'shared'}"
     cmd = (
         f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
-        f"{shlex.quote(OPENCLAW_BIN)} agent --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
+        f"{shlex.quote(OPENCLAW_BIN)} agent --session-id {shlex.quote(session_id)} --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
     )
 
     try:
@@ -686,12 +689,13 @@ async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str) -> t
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _stderr = await proc.communicate()
+        stdout, stderr = await proc.communicate()
     except Exception:
         logger.exception("openclaw smart extract launch failed")
         return [], None
 
     if proc.returncode != 0:
+        logger.error("openclaw smart extract failed rc=%s stderr=%s", proc.returncode, stderr.decode("utf-8", errors="ignore").strip())
         return [], None
 
     try:
@@ -716,7 +720,12 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
 
     parsed_events = _extract_ticket_event_hint(text, user_tz=tz_name)
     if not parsed_events:
-        parsed_events = await _extract_events_with_openclaw(text, user_tz=tz_name, locale=locale)
+        parsed_events = await _extract_events_with_openclaw(
+            text,
+            user_tz=tz_name,
+            locale=locale,
+            user_id=update.effective_chat.id,
+        )
     if not parsed_events:
         parsed_events = await parse_events_from_text(text, user_tz=tz_name, default_date_if_missing=False)
 
@@ -736,7 +745,11 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
     parsed_events = list(unique.values())
 
     if not parsed_events:
-        smart_events, clarify_question = await _extract_events_or_clarify_with_openclaw(text=text, user_tz=tz_name)
+        smart_events, clarify_question = await _extract_events_or_clarify_with_openclaw(
+            text=text,
+            user_tz=tz_name,
+            user_id=update.effective_chat.id,
+        )
         if smart_events:
             parsed_events = smart_events
         elif clarify_question:
@@ -780,9 +793,18 @@ async def handle_pending_event_clarification(update: Update, context: ContextTyp
     answer_text = (update.message.text or "").strip()
     merged_text = f"{base_text}\n\nУточнение пользователя: {answer_text}"
 
-    parsed_events, clarify_question = await _extract_events_or_clarify_with_openclaw(text=merged_text, user_tz=tz_name)
+    parsed_events, clarify_question = await _extract_events_or_clarify_with_openclaw(
+        text=merged_text,
+        user_tz=tz_name,
+        user_id=update.effective_chat.id,
+    )
     if not parsed_events:
-        parsed_events = await _extract_events_with_openclaw(text=merged_text, user_tz=tz_name, locale=locale)
+        parsed_events = await _extract_events_with_openclaw(
+            text=merged_text,
+            user_tz=tz_name,
+            locale=locale,
+            user_id=update.effective_chat.id,
+        )
     if not parsed_events:
         parsed_events = await parse_events_from_text(merged_text, user_tz=tz_name, default_date_if_missing=False)
 
