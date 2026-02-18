@@ -811,15 +811,22 @@ async def _try_answer_calendar_query(update: Update, text: str, tz_name: str, lo
     if not low:
         return False
 
-    markers = [
-        "что у меня запланировано",
-        "какие у меня события",
-        "что у меня на",
-        "what do i have",
-        "my events",
-        "what is scheduled",
-    ]
-    if not any(m in low for m in markers):
+    # broad detection for "show my events" intents (text and noisy ASR)
+    has_event_word = any(x in low for x in ["событ", "заплан", "calendar", "event", "schedule"])
+    has_question_word = any(x in low for x in ["что", "какие", "есть ли", "what", "which", "do i have"])
+    has_marker = any(
+        m in low
+        for m in [
+            "что у меня запланировано",
+            "какие у меня события",
+            "что у меня на",
+            "what do i have",
+            "my events",
+            "what is scheduled",
+        ]
+    )
+
+    if not (has_marker or (has_event_word and has_question_word)):
         return False
 
     tz = ZoneInfo(tz_name)
@@ -893,6 +900,12 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
         if smart_events:
             parsed_events = smart_events
         elif clarify_question:
+            # If model responds with "this is viewing events"-style clarification,
+            # try direct calendar answer instead of bouncing user back.
+            if any(x in clarify_question.lower() for x in ["просмотр", "view", "календар", "existing events"]):
+                if await _try_answer_calendar_query(update, text, tz_name, locale=locale):
+                    return True
+
             context.chat_data["pending_event_clarification"] = {
                 "base_text": text,
                 "user_tz": tz_name,
