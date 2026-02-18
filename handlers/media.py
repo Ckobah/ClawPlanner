@@ -501,7 +501,113 @@ async def _save_parsed_events(parsed_events: list[ParsedEvent], user_id: int, tz
     return created
 
 
-async def _process_extracted_text(update: Update, text: str) -> bool:
+def _parse_openclaw_smart_payload(raw: str) -> tuple[list[ParsedEvent], str | None]:
+    if not raw:
+        return [], None
+
+    text = raw.strip()
+    if "```" in text:
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE | re.DOTALL)
+
+    try:
+        payload = json.loads(text)
+    except Exception:
+        m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not m:
+            return [], None
+        try:
+            payload = json.loads(m.group(0))
+        except Exception:
+            return [], None
+
+    if not isinstance(payload, dict):
+        return [], None
+
+    status = str(payload.get("status", "")).strip().lower()
+    if status == "clarify":
+        q = str(payload.get("question", "")).strip()
+        return [], (q or None)
+
+    rows = payload.get("events")
+    if not isinstance(rows, list):
+        return [], None
+
+    parsed: list[ParsedEvent] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            d = datetime.date.fromisoformat(str(row.get("date", "")).strip())
+            st = datetime.time.fromisoformat(str(row.get("start_time", "")).strip())
+        except Exception:
+            continue
+
+        end_raw = row.get("end_time")
+        stop_time = None
+        if end_raw:
+            try:
+                stop_time = datetime.time.fromisoformat(str(end_raw).strip())
+            except Exception:
+                stop_time = None
+
+        rec_raw = str(row.get("recurrent", "never")).strip().lower()
+        recurrent = Recurrent.never
+        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
+            recurrent = Recurrent(rec_raw)
+
+        description = (str(row.get("description", "")).strip() or "Событие")
+        address = str(row.get("address", "")).strip()
+        if address:
+            description = f"{description} | Адрес: {address}"
+
+        parsed.append(ParsedEvent(event_date=d, start_time=st, stop_time=stop_time, description=description, recurrent=recurrent))
+
+    return parsed, None
+
+
+async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str) -> tuple[list[ParsedEvent], str | None]:
+    prompt = (
+        "Ты извлекаешь события из OCR/голосового текста для календаря. "
+        "Верни СТРОГО JSON-объект БЕЗ пояснений. "
+        "Если данных достаточно: {\"status\":\"ok\",\"events\":[{date,start_time,end_time,description,address,recurrent}]}. "
+        "Если данных недостаточно/двусмысленно: {\"status\":\"clarify\",\"question\":\"...\"}. "
+        "date=YYYY-MM-DD, time=HH:MM, recurrent in never|daily|weekly|monthly|annual. "
+        "Часовой пояс пользователя: " + user_tz + ".\n\n"
+        "Текст:\n" + text
+    )
+
+    cmd = (
+        f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
+        f"{shlex.quote(OPENCLAW_BIN)} agent --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f"/bin/bash -lc {shlex.quote(cmd)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await proc.communicate()
+    except Exception:
+        logger.exception("openclaw smart extract launch failed")
+        return [], None
+
+    if proc.returncode != 0:
+        return [], None
+
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="ignore"))
+        result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+        parts = result.get("payloads") or []
+        text_out = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict))
+    except Exception:
+        logger.exception("openclaw smart extract parse failed")
+        return [], None
+
+    return _parse_openclaw_smart_payload(text_out)
+
+
+async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     if not update.message or not update.effective_chat:
         return False
 
@@ -531,10 +637,22 @@ async def _process_extracted_text(update: Update, text: str) -> bool:
     parsed_events = list(unique.values())
 
     if not parsed_events:
-        await update.message.reply_text(
-            tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
-        )
-        return True
+        smart_events, clarify_question = await _extract_events_or_clarify_with_openclaw(text=text, user_tz=tz_name)
+        if smart_events:
+            parsed_events = smart_events
+        elif clarify_question:
+            context.chat_data["pending_event_clarification"] = {
+                "base_text": text,
+                "user_tz": tz_name,
+                "attempts": 1,
+            }
+            await update.message.reply_text(clarify_question)
+            return True
+        else:
+            await update.message.reply_text(
+                tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
+            )
+            return True
 
     created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
     if not created:
@@ -545,6 +663,66 @@ async def _process_extracted_text(update: Update, text: str) -> bool:
     for item in parsed_events[:10]:
         lines.append(f"• {item.event_date.strftime('%d.%m.%Y')} {item.start_time.strftime('%H:%M')} — {item.description}")
     await update.message.reply_text("\n".join(lines))
+    return True
+
+
+async def handle_pending_event_clarification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+
+    pending = context.chat_data.get("pending_event_clarification")
+    if not pending:
+        return False
+
+    locale = await resolve_user_locale(update.effective_chat.id, platform="tg")
+    user = await db_controller.get_user(update.effective_chat.id, platform="tg")
+    tz_name = (getattr(user, "time_zone", None) or "Europe/Moscow") if user else "Europe/Moscow"
+
+    base_text = str(pending.get("base_text", ""))
+    answer_text = (update.message.text or "").strip()
+    merged_text = f"{base_text}\n\nУточнение пользователя: {answer_text}"
+
+    parsed_events, clarify_question = await _extract_events_or_clarify_with_openclaw(text=merged_text, user_tz=tz_name)
+    if not parsed_events:
+        parsed_events = await _extract_events_with_openclaw(text=merged_text, user_tz=tz_name, locale=locale)
+    if not parsed_events:
+        parsed_events = await parse_events_from_text(merged_text, user_tz=tz_name, default_date_if_missing=False)
+
+    fallback_title = _extract_best_title_from_text(merged_text)
+    unique = {}
+    for ev in parsed_events:
+        if not ev.description or ev.description.isdigit():
+            continue
+        if ev.description.strip().lower() in {"событие", "event"} and fallback_title:
+            ev.description = fallback_title
+        key = (ev.event_date.isoformat(), ev.start_time.strftime("%H:%M"), ev.description.strip().lower())
+        unique[key] = ev
+    parsed_events = list(unique.values())
+
+    if parsed_events:
+        created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
+        context.chat_data.pop("pending_event_clarification", None)
+        if not created:
+            await update.message.reply_text(tr("Не получилось записать события в календарь.", locale))
+            return True
+
+        lines = [tr("Добавил событий: {count}", locale).format(count=created)]
+        for item in parsed_events[:10]:
+            lines.append(f"• {item.event_date.strftime('%d.%m.%Y')} {item.start_time.strftime('%H:%M')} — {item.description}")
+        await update.message.reply_text("\n".join(lines))
+        return True
+
+    attempts = int(pending.get("attempts", 1)) + 1
+    pending["attempts"] = attempts
+    pending["base_text"] = merged_text
+    context.chat_data["pending_event_clarification"] = pending
+
+    if clarify_question:
+        await update.message.reply_text(clarify_question)
+    else:
+        await update.message.reply_text(
+            tr("Нужно чуть больше деталей. Напиши, пожалуйста: дату, время и короткое описание события.", locale)
+        )
     return True
 
 
@@ -571,7 +749,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(tr("Не удалось распознать голосовое.", locale))
         return
 
-    await _process_extracted_text(update, text)
+    await _process_extracted_text(update, context, text)
 
 
 async def handle_pdf_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -612,7 +790,7 @@ async def handle_pdf_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(tr("Не удалось извлечь текст из PDF.", locale))
         return
 
-    await _process_extracted_text(update, text)
+    await _process_extracted_text(update, context, text)
 
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -644,4 +822,4 @@ async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(tr("Не удалось распознать текст на фото.", locale))
         return
 
-    await _process_extracted_text(update, text)
+    await _process_extracted_text(update, context, text)

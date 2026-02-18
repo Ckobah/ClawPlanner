@@ -42,7 +42,13 @@ from handlers.events import (
     show_upcoming_events,
 )
 from handlers.link import handle_link_callback
-from handlers.media import handle_pdf_message, handle_photo_message, handle_voice_message, parse_events_from_text
+from handlers.media import (
+    handle_pdf_message,
+    handle_pending_event_clarification,
+    handle_photo_message,
+    handle_voice_message,
+    parse_events_from_text,
+)
 from handlers.notes import handle_note_callback, handle_note_text_input, show_notes
 from handlers.start import handle_help, handle_language, handle_location, handle_skip, show_main_menu_keyboard, start
 from i18n import resolve_user_locale, tr, translate_markup
@@ -282,6 +288,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("handle_text")
     logger.info(update)
     locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
+
+    if await handle_pending_event_clarification(update, context):
+        return
+
     if await handle_note_text_input(update, context, locale):
         return
 
