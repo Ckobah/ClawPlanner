@@ -186,17 +186,82 @@ async def enforce_allowed_users(update: Update, context: ContextTypes.DEFAULT_TY
     raise ApplicationHandlerStop
 
 
+async def _build_user_context_block(user_id: int) -> str:
+    user = await db_controller.get_user(user_id, platform="tg")
+    if not user:
+        return "Пользователь в БД не найден."
+
+    user_name = user.first_name or user.username or "unknown"
+    user_city = user.city or "unknown"
+    user_tz = user.time_zone or DEFAULT_TIMEZONE_NAME
+
+    # ближайшие события
+    events_lines: list[str] = []
+    try:
+        nearest = await db_controller.get_nearest_events(user_id=user_id, tz_name=user_tz, platform="tg")
+        for item in nearest[:8]:
+            dt = list(item.keys())[0]
+            desc, emoji = list(item.values())[0]
+            events_lines.append(f"- {dt.strftime('%d.%m %H:%M')} {emoji or ''} {desc}".strip())
+    except Exception:
+        logger.exception("Failed to build nearest events context")
+
+    # заметки
+    notes_lines: list[str] = []
+    try:
+        row_id = await db_controller.get_user_row_id(external_id=user_id, platform="tg")
+        if row_id is not None:
+            notes = await db_controller.get_notes(user_id=row_id)
+            for note in notes[:5]:
+                txt = (note.note_text or "").strip().replace("\n", " ")
+                notes_lines.append(f"- {txt[:120]}")
+    except Exception:
+        logger.exception("Failed to build notes context")
+
+    return (
+        f"Профиль пользователя:\n"
+        f"- name: {user_name}\n"
+        f"- city: {user_city}\n"
+        f"- timezone: {user_tz}\n"
+        f"Ближайшие события:\n{chr(10).join(events_lines) if events_lines else '- нет'}\n"
+        f"Заметки:\n{chr(10).join(notes_lines) if notes_lines else '- нет'}"
+    )
+
+
+async def _answer_profile_query(user_id: int, text: str) -> str | None:
+    low = (text or "").lower().strip()
+    if not low:
+        return None
+
+    user = await db_controller.get_user(user_id, platform="tg")
+    if not user:
+        return None
+
+    if any(x in low for x in ["как меня зовут", "кто я", "моё имя", "мое имя", "my name", "who am i"]):
+        name = user.first_name or user.username or "Не вижу имени в профиле"
+        return f"Тебя зовут: {name}"
+
+    if any(x in low for x in ["из какого я города", "мой город", "where am i from", "my city"]):
+        city = user.city or "Город пока не указан"
+        return f"Твой город: {city}"
+
+    return None
+
+
 async def ask_clawd(user_id: int, text: str) -> str:
     session_id = f"{AI_SESSION_PREFIX}_{user_id}"
     user = await db_controller.get_user(user_id, platform="tg")
     user_name = (user.first_name or user.username) if user else None
     user_tz = (user.time_zone or DEFAULT_TIMEZONE_NAME) if user else DEFAULT_TIMEZONE_NAME
+    ctx_block = await _build_user_context_block(user_id)
 
     prompt = (
         "Ты помощник в Telegram. Отвечай кратко и по делу, предпочтительно на языке пользователя. "
-        "Если запрос про календарь/заметки и данных недостаточно — уточняй. "
-        "Если это общий вопрос — просто помоги.\n\n"
+        "У тебя есть актуальный контекст пользователя и его календаря/заметок ниже — используй его, не говори что у тебя нет доступа. "
+        "Если для изменения календаря/заметок не хватает данных — задай 1-2 уточняющих вопроса. "
+        "Если запрос общий — просто помоги.\n\n"
         f"Контекст: name={user_name or 'unknown'}, timezone={user_tz}.\n"
+        f"{ctx_block}\n\n"
         f"Сообщение пользователя: {text}"
     )
 
@@ -333,6 +398,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("handle_text")
     logger.info(update)
     locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
+
+    if update.message and update.effective_chat:
+        quick_answer = await _answer_profile_query(update.effective_chat.id, update.message.text or "")
+        if quick_answer:
+            await update.message.reply_text(quick_answer)
+            return
 
     if await handle_pending_event_clarification(update, context):
         return
