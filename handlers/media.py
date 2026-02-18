@@ -232,6 +232,38 @@ def _extract_recurrent(segment: str) -> Recurrent:
     return Recurrent.never
 
 
+def _extract_best_title_from_text(text: str) -> str | None:
+    lines = [re.sub(r"\s+", " ", ln).strip(" -—|\t") for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln]
+    if not lines:
+        return None
+
+    blacklist = [
+        "январ", "феврал", "март", "апрел", "мая", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр",
+        "today", "tomorrow", "вход", "билет", "место", "ряд", "дата", "время", "адрес", "дворец культуры",
+    ]
+
+    candidates: list[str] = []
+    for ln in lines:
+        low = ln.lower()
+        if re.search(r"\b\d{1,2}[:\.]\d{2}\b", low):
+            continue
+        if re.search(r"\b\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\b", low):
+            continue
+        if any(b in low for b in blacklist):
+            continue
+        if len(ln) < 8:
+            continue
+        candidates.append(ln)
+
+    if not candidates:
+        return None
+
+    # обычно заголовок афиши — самая длинная «смысловая» строка
+    best = max(candidates, key=len)
+    return best[:160]
+
+
 def _extract_description(segment: str) -> str:
     text = re.sub(r"\s+", " ", segment).strip()
     low = text.lower()
@@ -259,7 +291,7 @@ def _extract_description(segment: str) -> str:
     return text or "Событие"
 
 
-async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
+async def parse_events_from_text(text: str, user_tz: str, default_date_if_missing: bool = True) -> list[ParsedEvent]:
     tz = ZoneInfo(user_tz)
     base_date = datetime.datetime.now(tz).date()
 
@@ -281,6 +313,8 @@ async def parse_events_from_text(text: str, user_tz: str) -> list[ParsedEvent]:
         if not start_time:
             continue
         if event_date is None:
+            if not default_date_if_missing:
+                continue
             # если дата не указана, по умолчанию считаем "завтра"
             event_date = base_date + datetime.timedelta(days=1)
 
@@ -479,13 +513,19 @@ async def _process_extracted_text(update: Update, text: str) -> bool:
     if not parsed_events:
         parsed_events = await _extract_events_with_openclaw(text, user_tz=tz_name, locale=locale)
     if not parsed_events:
-        parsed_events = await parse_events_from_text(text, user_tz=tz_name)
+        parsed_events = await parse_events_from_text(text, user_tz=tz_name, default_date_if_missing=False)
+
+    fallback_title = _extract_best_title_from_text(text)
 
     # sanity filter: remove obvious garbage/duplicates
     unique = {}
     for ev in parsed_events:
         if not ev.description or ev.description.isdigit():
             continue
+
+        if ev.description.strip().lower() in {"событие", "event"} and fallback_title:
+            ev.description = fallback_title
+
         key = (ev.event_date.isoformat(), ev.start_time.strftime("%H:%M"), ev.description.strip().lower())
         unique[key] = ev
     parsed_events = list(unique.values())
