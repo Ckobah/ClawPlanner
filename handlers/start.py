@@ -61,6 +61,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data.pop("time_input_prompt_chat_id", None)
     context.chat_data.pop("await_note_create", None)
     context.chat_data.pop("await_note_edit", None)
+    context.chat_data.pop("pending_event_clarification", None)
+    context.chat_data.pop("pending_event_confirmation", None)
 
     user = update.effective_chat
     tg_user = TgUser.model_validate(user)
@@ -104,6 +106,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.chat_data.pop("time_input_prompt_chat_id", None)
     context.chat_data.pop("await_note_create", None)
     context.chat_data.pop("await_note_edit", None)
+    context.chat_data.pop("pending_event_clarification", None)
+    context.chat_data.pop("pending_event_confirmation", None)
     locale = await resolve_user_locale(getattr(update.effective_chat, "id", None), platform="tg")
     text = (
         "👋 Привет! Я помогу планировать дела и напоминать о событиях.\n\n"

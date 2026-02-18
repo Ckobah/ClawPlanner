@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import fitz
 from pypdf import PdfReader
 from rapidocr_onnxruntime import RapidOCR
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from config import WHISPER_LANGUAGE, WHISPER_MODEL
@@ -501,6 +501,104 @@ async def _save_parsed_events(parsed_events: list[ParsedEvent], user_id: int, tz
     return created
 
 
+def _serialize_parsed_events(parsed_events: list[ParsedEvent]) -> list[dict[str, str | None]]:
+    payload: list[dict[str, str | None]] = []
+    for item in parsed_events:
+        payload.append(
+            {
+                "date": item.event_date.isoformat(),
+                "start_time": item.start_time.strftime("%H:%M"),
+                "end_time": item.stop_time.strftime("%H:%M") if item.stop_time else None,
+                "description": item.description,
+                "recurrent": item.recurrent.value if isinstance(item.recurrent, Recurrent) else str(item.recurrent),
+            }
+        )
+    return payload
+
+
+def _deserialize_parsed_events(payload: list[dict]) -> list[ParsedEvent]:
+    parsed: list[ParsedEvent] = []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        try:
+            d = datetime.date.fromisoformat(str(row.get("date", "")).strip())
+            st = datetime.time.fromisoformat(str(row.get("start_time", "")).strip())
+        except Exception:
+            continue
+
+        end_raw = row.get("end_time")
+        stop_time = None
+        if end_raw:
+            try:
+                stop_time = datetime.time.fromisoformat(str(end_raw).strip())
+            except Exception:
+                stop_time = None
+
+        rec_raw = str(row.get("recurrent", "never")).strip().lower()
+        recurrent = Recurrent.never
+        if rec_raw in {"daily", "weekly", "monthly", "annual", "never"}:
+            recurrent = Recurrent(rec_raw)
+
+        description = str(row.get("description", "")).strip() or "Событие"
+        parsed.append(ParsedEvent(event_date=d, start_time=st, stop_time=stop_time, description=description, recurrent=recurrent))
+    return parsed
+
+
+def _event_preview_lines(parsed_events: list[ParsedEvent]) -> list[str]:
+    lines: list[str] = []
+    for idx, item in enumerate(parsed_events, start=1):
+        desc = item.description or "Событие"
+        venue = None
+        note = None
+        if "| Адрес:" in desc:
+            main_desc, addr = desc.split("| Адрес:", 1)
+            desc = main_desc.strip() or "Событие"
+            venue = addr.strip() or None
+
+        time_text = item.start_time.strftime("%H:%M")
+        if item.stop_time:
+            time_text = f"{time_text}–{item.stop_time.strftime('%H:%M')}"
+
+        lines.append(f"Событие #{idx}")
+        lines.append(f"- Дата: {item.event_date.strftime('%d.%m.%Y')}")
+        lines.append(f"- Время: {time_text}")
+        lines.append(f"- Описание: {desc}")
+        if venue:
+            lines.append(f"- Место: {venue}")
+        if note:
+            lines.append(f"- Примечание: {note}")
+        lines.append("")
+
+    return lines[:-1] if lines and lines[-1] == "" else lines
+
+
+async def _ask_confirmation_for_events(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    parsed_events: list[ParsedEvent],
+    locale: str | None,
+    source_text: str,
+    tz_name: str,
+) -> None:
+    if not update.message:
+        return
+
+    context.chat_data["pending_event_confirmation"] = {
+        "events": _serialize_parsed_events(parsed_events),
+        "source_text": source_text,
+        "user_tz": tz_name,
+    }
+
+    lines = [tr("Проверь, всё ли верно перед сохранением:", locale), ""]
+    lines.extend(_event_preview_lines(parsed_events))
+
+    markup = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("✅ Сохранить", callback_data="media_confirm_save")], [InlineKeyboardButton("✏️ Исправить", callback_data="media_confirm_edit")]]
+    )
+    await update.message.reply_text("\n".join(lines), reply_markup=markup)
+
+
 def _parse_openclaw_smart_payload(raw: str) -> tuple[list[ParsedEvent], str | None]:
     if not raw:
         return [], None
@@ -567,6 +665,7 @@ def _parse_openclaw_smart_payload(raw: str) -> tuple[list[ParsedEvent], str | No
 
 async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str) -> tuple[list[ParsedEvent], str | None]:
     prompt = (
+        "Используй навык smart-event-ingest, если он доступен. "
         "Ты извлекаешь события из OCR/голосового текста для календаря. "
         "Верни СТРОГО JSON-объект БЕЗ пояснений. "
         "Если данных достаточно: {\"status\":\"ok\",\"events\":[{date,start_time,end_time,description,address,recurrent}]}. "
@@ -654,15 +753,14 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
             )
             return True
 
-    created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
-    if not created:
-        await update.message.reply_text(tr("Не получилось записать события в календарь.", locale))
-        return True
-
-    lines = [tr("Добавил событий: {count}", locale).format(count=created)]
-    for item in parsed_events[:10]:
-        lines.append(f"• {item.event_date.strftime('%d.%m.%Y')} {item.start_time.strftime('%H:%M')} — {item.description}")
-    await update.message.reply_text("\n".join(lines))
+    await _ask_confirmation_for_events(
+        update=update,
+        context=context,
+        parsed_events=parsed_events,
+        locale=locale,
+        source_text=text,
+        tz_name=tz_name,
+    )
     return True
 
 
@@ -700,16 +798,15 @@ async def handle_pending_event_clarification(update: Update, context: ContextTyp
     parsed_events = list(unique.values())
 
     if parsed_events:
-        created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
         context.chat_data.pop("pending_event_clarification", None)
-        if not created:
-            await update.message.reply_text(tr("Не получилось записать события в календарь.", locale))
-            return True
-
-        lines = [tr("Добавил событий: {count}", locale).format(count=created)]
-        for item in parsed_events[:10]:
-            lines.append(f"• {item.event_date.strftime('%d.%m.%Y')} {item.start_time.strftime('%H:%M')} — {item.description}")
-        await update.message.reply_text("\n".join(lines))
+        await _ask_confirmation_for_events(
+            update=update,
+            context=context,
+            parsed_events=parsed_events,
+            locale=locale,
+            source_text=merged_text,
+            tz_name=tz_name,
+        )
         return True
 
     attempts = int(pending.get("attempts", 1)) + 1
@@ -724,6 +821,55 @@ async def handle_pending_event_clarification(update: Update, context: ContextTyp
             tr("Нужно чуть больше деталей. Напиши, пожалуйста: дату, время и короткое описание события.", locale)
         )
     return True
+
+
+async def handle_media_confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not update.effective_chat:
+        return
+
+    await query.answer()
+    locale = await resolve_user_locale(update.effective_chat.id, platform="tg")
+    pending = context.chat_data.get("pending_event_confirmation")
+    if not pending:
+        await query.edit_message_text(tr("Черновик события не найден. Отправь файл/голос ещё раз.", locale))
+        return
+
+    data = query.data or ""
+    if data == "media_confirm_save":
+        user = await db_controller.get_user(update.effective_chat.id, platform="tg")
+        tz_name = str(pending.get("user_tz") or (getattr(user, "time_zone", None) or "Europe/Moscow"))
+        events_payload = pending.get("events") or []
+        parsed_events = _deserialize_parsed_events(events_payload)
+        if not parsed_events:
+            await query.edit_message_text(tr("Не получилось прочитать черновик. Пришли файл заново.", locale))
+            return
+
+        created = await _save_parsed_events(parsed_events, user_id=update.effective_chat.id, tz_name=tz_name)
+        context.chat_data.pop("pending_event_confirmation", None)
+        if not created:
+            await query.edit_message_text(tr("Не получилось записать события в календарь.", locale))
+            return
+
+        lines = [tr("Добавил событий: {count}", locale).format(count=created)]
+        for item in parsed_events[:10]:
+            lines.append(f"• {item.event_date.strftime('%d.%m.%Y')} {item.start_time.strftime('%H:%M')} — {item.description}")
+        await query.edit_message_text("\n".join(lines))
+        return
+
+    if data == "media_confirm_edit":
+        source_text = str(pending.get("source_text", "")).strip()
+        user_tz = str(pending.get("user_tz", "Europe/Moscow"))
+        context.chat_data["pending_event_clarification"] = {
+            "base_text": source_text,
+            "user_tz": user_tz,
+            "attempts": 1,
+        }
+        context.chat_data.pop("pending_event_confirmation", None)
+        await query.edit_message_text(
+            tr("Ок, что исправить? Напиши в одном сообщении дату, время, описание и (если есть) место.", locale)
+        )
+        return
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

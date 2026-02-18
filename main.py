@@ -43,6 +43,7 @@ from handlers.events import (
 )
 from handlers.link import handle_link_callback
 from handlers.media import (
+    handle_media_confirmation_callback,
     handle_pdf_message,
     handle_pending_event_clarification,
     handle_photo_message,
@@ -535,6 +536,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_reschedule_event_callback, pattern="^reschedule_event_"))
     application.add_handler(CallbackQueryHandler(handle_emoji_callback, pattern="^emoji_"))
     application.add_handler(CallbackQueryHandler(handle_link_callback, pattern="^link_tg_"))
+    application.add_handler(CallbackQueryHandler(handle_media_confirmation_callback, pattern="^media_confirm_"))
     application.add_handler(CallbackQueryHandler(handle_note_callback, pattern="^note_"))
     application.add_handler(MessageHandler(filters.Regex(r"^🗓 (Ближайшие события|Upcoming events)$"), show_upcoming_events))
     application.add_handler(MessageHandler(filters.Regex(r"^(📝 )?(Заметки|Notes)$"), show_notes))
