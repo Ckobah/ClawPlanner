@@ -65,6 +65,21 @@ AI_SESSION_PREFIX = os.getenv("AI_SESSION_PREFIX", "tg_planner_user")
 AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "90"))
 OPENCLAW_BIN = os.getenv("OPENCLAW_BIN") or shutil.which("openclaw") or "/home/clawd/.npm-global/bin/openclaw"
 
+RU_MONTHS_QUERY = {
+    "январ": 1,
+    "феврал": 2,
+    "март": 3,
+    "апрел": 4,
+    "мая": 5,
+    "июн": 6,
+    "июл": 7,
+    "август": 8,
+    "сентябр": 9,
+    "октябр": 10,
+    "ноябр": 11,
+    "декабр": 12,
+}
+
 
 def _parse_allowed_ids(raw: str | None) -> set[int]:
     allowed: set[int] = set()
@@ -228,6 +243,57 @@ async def _build_user_context_block(user_id: int) -> str:
     )
 
 
+def _extract_date_from_query(text: str, user_tz: str) -> datetime.date | None:
+    low = (text or "").lower()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+
+        now = now.astimezone(ZoneInfo(user_tz))
+    except Exception:
+        pass
+    base_date = now.date()
+
+    if "сегодня" in low:
+        return base_date
+    if "завтра" in low:
+        return base_date + datetime.timedelta(days=1)
+    if "послезавтра" in low:
+        return base_date + datetime.timedelta(days=2)
+
+    m_num = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", low)
+    if m_num:
+        day = int(m_num.group(1))
+        month = int(m_num.group(2))
+        y = m_num.group(3)
+        year = int(y) + 2000 if y and len(y) == 2 else int(y) if y else base_date.year
+        try:
+            dt = datetime.date(year, month, day)
+            if not y and dt < base_date:
+                dt = datetime.date(year + 1, month, day)
+            return dt
+        except ValueError:
+            return None
+
+    m_ru = re.search(r"\b(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?\b", low)
+    if m_ru:
+        day = int(m_ru.group(1))
+        mon_word = m_ru.group(2)
+        year_raw = m_ru.group(3)
+        month = next((v for k, v in RU_MONTHS_QUERY.items() if mon_word.startswith(k)), None)
+        if month:
+            year = int(year_raw) if year_raw else base_date.year
+            try:
+                dt = datetime.date(year, month, day)
+                if not year_raw and dt < base_date:
+                    dt = datetime.date(year + 1, month, day)
+                return dt
+            except ValueError:
+                return None
+
+    return None
+
+
 async def _answer_profile_query(user_id: int, text: str) -> str | None:
     low = (text or "").lower().strip()
     if not low:
@@ -244,6 +310,25 @@ async def _answer_profile_query(user_id: int, text: str) -> str | None:
     if any(x in low for x in ["из какого я города", "мой город", "where am i from", "my city"]):
         city = user.city or "Город пока не указан"
         return f"Твой город: {city}"
+
+    if any(x in low for x in ["что у меня запланировано", "какие у меня события", "что у меня на", "what do i have", "my events"]):
+        user_tz = user.time_zone or DEFAULT_TIMEZONE_NAME
+        target_date = _extract_date_from_query(low, user_tz)
+        if not target_date:
+            return "Уточни дату, пожалуйста: например, ‘на 8 марта’ или ‘на завтра’."
+
+        events = await db_controller.get_current_day_events_by_user(
+            user_id=user_id,
+            year=target_date.year,
+            month=target_date.month,
+            day=target_date.day,
+            tz_name=user_tz,
+            platform="tg",
+        )
+        if not events:
+            return f"На {target_date.strftime('%d.%m.%Y')} событий не нашёл."
+
+        return f"На {target_date.strftime('%d.%m.%Y')} у тебя:\n{events}"
 
     return None
 
