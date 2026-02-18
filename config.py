@@ -21,6 +21,7 @@ MAX_POLL_TIMEOUT = int(os.getenv("MAX_POLL_TIMEOUT", "30"))
 
 
 LOCAL = os.getenv("LOCAL")
+MULTI_USER_MODE = os.getenv("MULTI_USER_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 if LOCAL:
     database_url = "sqlite+aiosqlite:///bot.db"
