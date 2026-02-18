@@ -761,6 +761,48 @@ async def _extract_events_or_clarify_with_openclaw(text: str, user_tz: str, user
     return _parse_openclaw_smart_payload(text_out)
 
 
+async def _ask_openclaw_general(text: str, user_tz: str, user_id: int | None = None) -> str | None:
+    prompt = (
+        "Ты ассистент в Telegram. Пользователь прислал текст/голос, это может быть не про календарь. "
+        "Ответь кратко и полезно на языке пользователя. "
+        "Если вопрос про календарь, попроси дату/время/описание. "
+        f"Часовой пояс пользователя: {user_tz}.\n\n"
+        f"Сообщение пользователя:\n{text}"
+    )
+
+    session_id = f"tg_planner_general_{user_id or 'shared'}"
+    cmd = (
+        f"export PATH=/home/clawd/.npm-global/bin:$PATH; "
+        f"{shlex.quote(OPENCLAW_BIN)} agent --session-id {shlex.quote(session_id)} --message {shlex.quote(prompt)} --json --timeout {AI_TIMEOUT_SECONDS}"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f"/bin/bash -lc {shlex.quote(cmd)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+    except Exception:
+        logger.exception("openclaw general launch failed")
+        return None
+
+    if proc.returncode != 0:
+        logger.error("openclaw general failed rc=%s stderr=%s", proc.returncode, stderr.decode("utf-8", errors="ignore").strip())
+        return None
+
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="ignore"))
+        result = (payload.get("result") or {}) if isinstance(payload, dict) else {}
+        parts = result.get("payloads") or []
+        text_out = "\n\n".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text"))
+        answer = text_out.strip()
+        return answer or None
+    except Exception:
+        logger.exception("openclaw general parse failed")
+        return None
+
+
 async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     if not update.message or not update.effective_chat:
         return False
@@ -812,9 +854,13 @@ async def _process_extracted_text(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text(clarify_question)
             return True
         else:
-            await update.message.reply_text(
-                tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
-            )
+            general_answer = await _ask_openclaw_general(text=text, user_tz=tz_name, user_id=update.effective_chat.id)
+            if general_answer:
+                await update.message.reply_text(general_answer)
+            else:
+                await update.message.reply_text(
+                    tr("Не смог уверенно выделить события из файла/голоса. Пришли текстом дату/время/описание или более четкий PDF.", locale)
+                )
             return True
 
     await _ask_confirmation_for_events(
